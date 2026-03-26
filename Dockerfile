@@ -18,9 +18,6 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && node --version \
     && npm --version
 
-# Install pnpm globally
-RUN npm install -g pnpm
-
 # Install OpenClaw (formerly clawdbot/moltbot)
 # Pin to specific version for reproducible builds
 RUN npm install -g openclaw@2026.3.23-2 \
