@@ -56,19 +56,6 @@ where
 * result.lastBackupId matches /^[0-9a-f-]+$/
 
 ===
-pre-marker filesystem state
-%require
-===
-WORKER_URL=$(cat "$CCTR_FIXTURE_DIR/worker-url.txt")
-# Dump mount state and directory listing BEFORE creating the marker
-./curl-auth -s "$WORKER_URL/debug/cli?cmd=echo+MOUNT:+%26%26+(mount+%7C+grep+openclaw+%7C%7C+echo+NO_OVERLAY)+%26%26+echo+LS:+%26%26+ls+-la+/home/openclaw/clawd/" | jq .
----
-{{ result: json object }}
----
-where
-* result.status == "completed"
-
-===
 create workspace marker file
 %require
 ===
@@ -93,19 +80,6 @@ where
 * result.success == true
 
 ===
-post-sync filesystem state
-%require
-===
-WORKER_URL=$(cat "$CCTR_FIXTURE_DIR/worker-url.txt")
-# Dump mount state and directory listing AFTER sync (before delete)
-./curl-auth -s "$WORKER_URL/debug/cli?cmd=echo+MOUNT:+%26%26+(mount+%7C+grep+openclaw+%7C%7C+echo+NO_OVERLAY)+%26%26+echo+LS:+%26%26+ls+-la+/home/openclaw/clawd/+%26%26+echo+MARKER:+%26%26+cat+/home/openclaw/clawd/e2e-marker.txt" | jq .
----
-{{ result: json object }}
----
-where
-* result.stdout contains "e2e-marker.txt"
-
-===
 delete marker file locally and confirm gone
 %require
 ===
@@ -116,21 +90,6 @@ WORKER_URL=$(cat "$CCTR_FIXTURE_DIR/worker-url.txt")
 ---
 where
 * result.stdout contains "deleted-and-gone"
-
-===
-pre-restart state
-%require
-===
-WORKER_URL=$(cat "$CCTR_FIXTURE_DIR/worker-url.txt")
-# Dump: R2 handle, mount state, directory, process list
-HANDLE=$(./curl-auth -s "$WORKER_URL/api/admin/storage" 2>/dev/null)
-FS=$(./curl-auth -s "$WORKER_URL/debug/cli?cmd=echo+MOUNT:+%26%26+(mount+%7C+grep+openclaw+%7C%7C+echo+NO_OVERLAY)+%26%26+echo+LS:+%26%26+ls+/home/openclaw/clawd/+%26%26+echo+MARKER:+%26%26+(cat+/home/openclaw/clawd/e2e-marker.txt+2>%261+%7C%7C+echo+MISSING)" 2>/dev/null)
-echo "{\"handle\": $(echo $HANDLE), \"fs\": $(echo $FS)}" | jq .
----
-{{ result: json object }}
----
-where
-* result.handle.lastBackupId matches /^[0-9a-f-]+$/
 
 ===
 restart gateway to trigger restore from R2
@@ -164,19 +123,6 @@ echo "$STATUS" | jq .
 ---
 where
 * result.ok == true
-
-===
-post-restore filesystem state
-%require
-===
-WORKER_URL=$(cat "$CCTR_FIXTURE_DIR/worker-url.txt")
-# Dump everything about the restored state
-./curl-auth -s "$WORKER_URL/debug/cli?cmd=echo+MOUNT:+%26%26+(mount+%7C+grep+openclaw+%7C%7C+echo+NO_OVERLAY)+%26%26+echo+LS:+%26%26+ls+-la+/home/openclaw/clawd/+%26%26+echo+MARKER:+%26%26+(cat+/home/openclaw/clawd/e2e-marker.txt+2>%261+%7C%7C+echo+MISSING)+%26%26+echo+HANDLE:+%26%26+cat+/home/openclaw/.openclaw/openclaw.json+%7C+head+-1+2>%261+%7C%7C+echo+NO_CONFIG" | jq .
----
-{{ result: json object }}
----
-where
-* result.status == "completed"
 
 ===
 verify marker file restored from R2 after restart
