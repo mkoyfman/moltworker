@@ -248,22 +248,41 @@ adminApi.post('/gateway/restart', async (c) => {
     // Find and kill the existing gateway process
     const existingProcess = await findExistingGatewayProcess(sandbox);
 
+    // Force kill gateway via exec — more reliable than Process.kill() because
+    // the tracked process (start-openclaw.sh) may have forked a child
+    // (openclaw gateway) that survives Process.kill(). (Credit: dalexeenko #261)
+    try {
+      await sandbox.exec('pkill -9 -f "openclaw gateway" 2>/dev/null || true');
+    } catch {
+      // Process may not exist
+    }
+
+    // Also kill via the Process API for completeness
     if (existingProcess) {
-      console.log('Killing existing gateway process:', existingProcess.id);
+      console.log('Also killing via Process API:', existingProcess.id);
       try {
         await existingProcess.kill();
-      } catch (killErr) {
-        console.error('Error killing process:', killErr);
+      } catch {
+        // Ignore
       }
-      // Wait for the process to actually stop
-      for (let i = 0; i < 10; i++) {
-        const proc = await findExistingGatewayProcess(sandbox);
-        if (!proc || proc.status !== 'running') {
-          console.log('Gateway process stopped after', (i + 1) * 2, 'seconds');
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 2000));
-      }
+    }
+
+    // Clean up lock files that prevent restart
+    try {
+      await sandbox.exec(
+        'rm -f /tmp/openclaw-gateway.lock /root/.openclaw/gateway.lock 2>/dev/null || true',
+      );
+    } catch {
+      // Ignore
+    }
+
+    // Wait for process to fully die and verify
+    await new Promise((r) => setTimeout(r, 3000));
+    try {
+      const check = await sandbox.exec('pgrep -f "openclaw gateway" || echo "dead"');
+      console.log('[Restart] Process check after kill:', check.stdout?.trim());
+    } catch {
+      // Ignore
     }
 
     // Clear the restore flag so the next request re-restores from R2.
