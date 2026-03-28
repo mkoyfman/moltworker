@@ -3,11 +3,22 @@ import type { Sandbox } from '@cloudflare/sandbox';
 const BACKUP_DIR = '/home/openclaw';
 const HANDLE_KEY = 'backup-handle.json';
 
-// Tracks whether a restore has already happened in this Worker isolate lifetime.
-// The FUSE mount is ephemeral — lost when the container sleeps or restarts —
-// but within a single isolate we only need to restore once.
+const RESTORE_NEEDED_KEY = 'restore-needed';
+
+// Per-isolate flag for fast path (avoid R2 read on every request)
 let restored = false;
 
+/**
+ * Signal that a restore is needed (e.g. after gateway restart).
+ * Writes a marker to R2 so ALL Worker isolates will re-restore,
+ * not just the one that handled the restart request.
+ */
+export async function signalRestoreNeeded(bucket: R2Bucket): Promise<void> {
+  restored = false;
+  await bucket.put(RESTORE_NEEDED_KEY, '1');
+}
+
+// Backward compat alias
 export function clearPersistenceCache(): void {
   restored = false;
 }
@@ -39,7 +50,14 @@ async function deleteHandle(bucket: R2Bucket): Promise<void> {
  * An in-memory flag prevents redundant restores within the same isolate.
  */
 export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promise<void> {
-  if (restored) return;
+  if (restored) {
+    // Fast path: this isolate already restored. But check if another
+    // isolate signaled a restore is needed (e.g. after gateway restart).
+    const marker = await bucket.head(RESTORE_NEEDED_KEY);
+    if (!marker) return; // No restore signal — we're good
+    console.log('[persistence] Restore signal found in R2, re-restoring...');
+    restored = false;
+  }
 
   const handle = await getStoredHandle(bucket);
   if (!handle) {
@@ -48,10 +66,7 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
     return;
   }
 
-  // Unmount any existing FUSE overlay before restoring. If the Worker isolate
-  // recycled, a previous restore's overlay may still be mounted with stale
-  // upper-layer state (e.g. deleted files via whiteout entries). A fresh
-  // mount from the backup gives us a clean lower layer.
+  // Unmount any stale overlay with whiteout entries before re-mounting
   try {
     await sandbox.exec(`umount ${BACKUP_DIR} 2>/dev/null; true`);
   } catch {
@@ -62,6 +77,9 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
   const t0 = Date.now();
   try {
     await sandbox.restoreBackup(handle);
+    // Clear the restore signal and set the per-isolate flag
+    await bucket.delete(RESTORE_NEEDED_KEY);
+    restored = true;
     console.log(`[persistence] Restore complete in ${Date.now() - t0}ms`);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -73,7 +91,6 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
       throw err;
     }
   }
-  restored = true;
 }
 
 /**

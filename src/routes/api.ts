@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import { createAccessMiddleware } from '../auth';
 import { ensureGateway, findExistingGatewayProcess, killGateway, waitForProcess } from '../gateway';
-import { createSnapshot, getLastBackupId, clearPersistenceCache } from '../persistence';
+import { createSnapshot, getLastBackupId, signalRestoreNeeded } from '../persistence';
 
 // CLI commands can take 10-15 seconds to complete due to WebSocket connection overhead
 const CLI_TIMEOUT_MS = 20000;
@@ -262,12 +262,11 @@ adminApi.post('/gateway/restart', async (c) => {
     console.log('[Restart] Killing gateway, existing process:', existingProcess?.id ?? 'none');
     await killGateway(sandbox);
 
-    // Clear the restore flag so the next request re-restores from R2.
-    // We intentionally do NOT start the gateway here — the next incoming
-    // request will trigger restoreIfNeeded() first (in the middleware),
-    // then ensureGateway() (in the catch-all route), ensuring
-    // the FUSE overlay is mounted before the gateway writes config files.
-    clearPersistenceCache();
+    // Signal that all Worker isolates need to re-restore from R2.
+    // This writes a marker to R2 that restoreIfNeeded checks, ensuring
+    // the FUSE overlay is mounted even if a different isolate handles
+    // the next request (e.g. browser WebSocket reconnect).
+    await signalRestoreNeeded(c.env.BACKUP_BUCKET);
 
     return c.json({
       success: true,
