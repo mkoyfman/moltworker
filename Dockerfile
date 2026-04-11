@@ -22,7 +22,8 @@ RUN ARCH="$(dpkg --print-architecture)" \
 
 # Install OpenClaw
 # Pin to specific version for reproducible builds
-RUN npm install -g openclaw@2026.3.23-2 \
+ARG OPENCLAW_VERSION=2026.4.10
+RUN npm install -g openclaw@${OPENCLAW_VERSION} \
     && openclaw --version
 
 # Use /home/openclaw as the home directory instead of /root.
