@@ -22,7 +22,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
 
 # Install OpenClaw
 # Pin to specific version for reproducible builds
-ARG OPENCLAW_VERSION=2026.4.10
+ARG OPENCLAW_VERSION=latest
 RUN npm install -g openclaw@${OPENCLAW_VERSION} \
     && openclaw --version
 
