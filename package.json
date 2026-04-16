@@ -17,7 +17,12 @@
     "format:check": "oxfmt --check src/",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "deps:check": "npx npm-check-updates",
+    "deps:update": "npx npm-check-updates -u && npm install",
+    "deps:update:minor": "npm update",
+    "deps:audit:runtime": "npm audit --omit=dev",
+    "deps:audit:all": "npm audit"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "^1.0.5",
@@ -36,6 +41,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
     "@vitest/coverage-v8": "^4.0.18",
+    "npm-check-updates": "^17.1.13",
     "oxfmt": "^0.28.0",
     "oxlint": "^1.43.0",
     "typescript": "^5.9.3",
@@ -51,8 +57,8 @@
         "description": "Your [Anthropic API key](https://console.anthropic.com/)."
       },
       "MOLTBOT_GATEWAY_TOKEN": {
-        "description": "Token for gateway access. Generate with: openssl rand -hex 32"
+        "description": "Token for gateway access.\nGenerate with: openssl rand -hex 32"
       }
     }
   }
-}
+}  
