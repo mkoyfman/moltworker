@@ -29,7 +29,7 @@ import { createAccessMiddleware } from './auth';
 import { ensureGateway, findExistingGatewayProcess, killGateway } from './gateway';
 import { publicRoutes, api, adminUi, debug, cdp } from './routes';
 import { redactSensitiveParams } from './utils/logging';
-import { restoreIfNeeded, createSnapshot } from './persistence';
+import { restoreIfNeeded } from './persistence';
 import { handleScheduled } from './cron/handler';
 import loadingPageHtml from './assets/loading.html';
 import configErrorHtml from './assets/config-error.html';

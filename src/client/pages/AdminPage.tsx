@@ -19,13 +19,14 @@ function ButtonSpinner() {
   return <span className="btn-spinner" />;
 }
 
-function formatSyncTime(isoString: string | null) {
-  if (!isoString) return 'Never';
+function formatBackupStatus(backupAt: string | null, backupId: string | null) {
+  if (!backupAt && !backupId) return 'Never';
+  if (!backupAt) return backupId ? `Snapshot ${backupId}` : 'Never';
   try {
-    const date = new Date(isoString);
+    const date = new Date(backupAt);
     return date.toLocaleString();
   } catch {
-    return isoString;
+    return backupAt;
   }
 }
 
@@ -159,8 +160,15 @@ export default function AdminPage() {
     try {
       const result = await triggerSync();
       if (result.success) {
-        // Update the storage status with new lastSync time
-        setStorageStatus((prev) => (prev ? { ...prev, lastSync: result.lastSync || null } : null));
+        setStorageStatus((prev) =>
+          prev
+            ? {
+                ...prev,
+                lastBackupId: result.backupId || prev.lastBackupId,
+                lastBackupAt: result.lastBackupAt || prev.lastBackupAt,
+              }
+            : null,
+        );
         setError(null);
       } else {
         setError(result.error || 'Sync failed');
@@ -214,7 +222,8 @@ export default function AdminPage() {
                 R2 storage is configured. Your data will persist across container restarts.
               </span>
               <span className="last-sync">
-                Last backup: {formatSyncTime(storageStatus.lastSync)}
+                Last backup:{' '}
+                {formatBackupStatus(storageStatus.lastBackupAt, storageStatus.lastBackupId)}
               </span>
             </div>
             <button

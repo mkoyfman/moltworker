@@ -8,6 +8,12 @@ const RESTORE_NEEDED_KEY = 'restore-needed';
 // Per-isolate flag for fast path (avoid R2 read on every request)
 let restored = false;
 
+export interface BackupHandle {
+  id: string;
+  dir: string;
+  createdAt?: string;
+}
+
 /**
  * Signal that a restore is needed (e.g. after gateway restart).
  * Writes a marker to R2 so ALL Worker isolates will re-restore,
@@ -23,13 +29,13 @@ export function clearPersistenceCache(): void {
   restored = false;
 }
 
-async function getStoredHandle(bucket: R2Bucket): Promise<{ id: string; dir: string } | null> {
+async function getStoredHandle(bucket: R2Bucket): Promise<BackupHandle | null> {
   const obj = await bucket.get(HANDLE_KEY);
   if (!obj) return null;
   return obj.json();
 }
 
-async function storeHandle(bucket: R2Bucket, handle: { id: string; dir: string }): Promise<void> {
+async function storeHandle(bucket: R2Bucket, handle: BackupHandle): Promise<void> {
   await bucket.put(HANDLE_KEY, JSON.stringify(handle));
 }
 
@@ -104,10 +110,7 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
  * /tmp, or /var/tmp. The Dockerfile sets HOME=/home/openclaw and symlinks
  * /root/.openclaw and /root/clawd there.
  */
-export async function createSnapshot(
-  sandbox: Sandbox,
-  bucket: R2Bucket,
-): Promise<{ id: string; dir: string }> {
+export async function createSnapshot(sandbox: Sandbox, bucket: R2Bucket): Promise<BackupHandle> {
   // Delete previous backup objects from R2
   const previousHandle = await getStoredHandle(bucket);
   if (previousHandle) {
@@ -130,9 +133,14 @@ export async function createSnapshot(
     ttl: 604800, // 7 days
   });
 
-  await storeHandle(bucket, handle);
-  console.log(`[persistence] Backup ${handle.id} created in ${Date.now() - t0}ms`);
-  return handle;
+  const storedHandle = {
+    ...handle,
+    createdAt: new Date().toISOString(),
+  };
+
+  await storeHandle(bucket, storedHandle);
+  console.log(`[persistence] Backup ${storedHandle.id} created in ${Date.now() - t0}ms`);
+  return storedHandle;
 }
 
 /**
@@ -141,4 +149,11 @@ export async function createSnapshot(
 export async function getLastBackupId(bucket: R2Bucket): Promise<string | null> {
   const handle = await getStoredHandle(bucket);
   return handle?.id ?? null;
+}
+
+/**
+ * Get the last stored backup metadata (for status reporting).
+ */
+export async function getLastBackupInfo(bucket: R2Bucket): Promise<BackupHandle | null> {
+  return getStoredHandle(bucket);
 }
