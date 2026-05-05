@@ -11,7 +11,7 @@ Run [OpenClaw](https://github.com/openclaw/openclaw) (formerly Moltbot, formerly
 ## Requirements
 
 - [Workers Paid plan](https://www.cloudflare.com/plans/developer-platform/) ($5 USD/month) — required for Cloudflare Sandbox containers. Running the container incurs additional compute costs; see [Container Cost Estimate](#container-cost-estimate) below for details.
-- [Anthropic API key](https://console.anthropic.com/) — for Claude access, or you can use AI Gateway's [Unified Billing](https://developers.cloudflare.com/ai-gateway/features/unified-billing/)
+- AI access through either [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) with Workers AI Unified Billing, or a direct provider key such as [Anthropic](https://console.anthropic.com/)
 
 The following Cloudflare features used by this project have free tiers:
 - Cloudflare Access (authentication)
@@ -65,7 +65,7 @@ npm install
 # Set your API key (direct Anthropic access)
 npx wrangler secret put ANTHROPIC_API_KEY
 
-# Or use Cloudflare AI Gateway instead (see "Optional: Cloudflare AI Gateway" below)
+# Or use Cloudflare AI Gateway instead (defaults to Kimi K2.6 on Workers AI)
 # npx wrangler secret put CLOUDFLARE_AI_GATEWAY_API_KEY
 # npx wrangler secret put CF_AI_GATEWAY_ACCOUNT_ID
 # npx wrangler secret put CF_AI_GATEWAY_GATEWAY_ID
@@ -349,9 +349,9 @@ See `skills/cloudflare-browser/SKILL.md` for full documentation.
 
 ## Optional: Cloudflare AI Gateway
 
-You can route API requests through [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) for caching, rate limiting, analytics, and cost tracking. OpenClaw has native support for Cloudflare AI Gateway as a first-class provider.
+You can route API requests through [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) for caching, rate limiting, analytics, and cost tracking. This fork defaults OpenClaw to Kimi K2.6 on Workers AI via Cloudflare AI Gateway.
 
-AI Gateway acts as a proxy between OpenClaw and your AI provider (e.g., Anthropic). Requests are sent to `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/anthropic` instead of directly to `api.anthropic.com`, giving you Cloudflare's analytics, caching, and rate limiting. You still need a provider API key (e.g., your Anthropic API key) — the gateway forwards it to the upstream provider.
+AI Gateway acts as a proxy between OpenClaw and your AI provider. For the default Workers AI model, requests are sent through `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/workers-ai/v1` and billed/authenticated by Cloudflare. Other providers such as Anthropic or OpenAI can still be used by changing `OPENCLAW_AI_GATEWAY_MODEL`.
 
 ### Setup
 
@@ -359,8 +359,8 @@ AI Gateway acts as a proxy between OpenClaw and your AI provider (e.g., Anthropi
 2. Set the three required secrets:
 
 ```bash
-# Your AI provider's API key (e.g., your Anthropic API key).
-# This is passed through the gateway to the upstream provider.
+# Your Cloudflare AI Gateway authentication token.
+# For Workers AI Unified Billing, use the cf-aig-authorization token.
 npx wrangler secret put CLOUDFLARE_AI_GATEWAY_API_KEY
 
 # Your Cloudflare account ID
@@ -370,7 +370,7 @@ npx wrangler secret put CF_AI_GATEWAY_ACCOUNT_ID
 npx wrangler secret put CF_AI_GATEWAY_GATEWAY_ID
 ```
 
-All three are required. OpenClaw constructs the gateway URL from the account ID and gateway ID, and passes the API key to the upstream provider through the gateway.
+All three are required. OpenClaw constructs the gateway URL from the account ID and gateway ID, then uses `OPENCLAW_AI_GATEWAY_MODEL` to select the provider and model.
 
 3. Redeploy:
 
@@ -382,23 +382,24 @@ When Cloudflare AI Gateway is configured, it takes precedence over direct `ANTHR
 
 ### Choosing a Model
 
-By default, AI Gateway uses Anthropic's Claude Sonnet 4.5. To use a different model or provider, set `CF_AI_GATEWAY_MODEL` with the format `provider/model-id`:
+By default, this fork uses Kimi K2.6 on Workers AI:
 
 ```bash
-npx wrangler secret put CF_AI_GATEWAY_MODEL
-# Enter: workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast
+OPENCLAW_AI_GATEWAY_MODEL=workers-ai/@cf/moonshotai/kimi-k2.6
 ```
+
+That default is set in `wrangler.jsonc` as `OPENCLAW_AI_GATEWAY_MODEL`, which takes precedence over older `CF_AI_GATEWAY_MODEL` secrets. To use a different model or provider, update `OPENCLAW_AI_GATEWAY_MODEL` with the format `provider/model-id`.
 
 This works with any [AI Gateway provider](https://developers.cloudflare.com/ai-gateway/usage/providers/):
 
-| Provider | Example `CF_AI_GATEWAY_MODEL` value | API key is... |
+| Provider | Example `OPENCLAW_AI_GATEWAY_MODEL` value | API key is... |
 |----------|-------------------------------------|---------------|
-| Workers AI | `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast` | Cloudflare API token |
+| Workers AI | `workers-ai/@cf/moonshotai/kimi-k2.6` | Cloudflare AI Gateway token |
 | OpenAI | `openai/gpt-4o` | OpenAI API key |
 | Anthropic | `anthropic/claude-sonnet-4-5` | Anthropic API key |
 | Groq | `groq/llama-3.3-70b` | Groq API key |
 
-**Note:** `CLOUDFLARE_AI_GATEWAY_API_KEY` must match the provider you're using — it's your provider's API key, forwarded through the gateway. You can only use one provider at a time through the gateway. For multiple providers, use direct keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) alongside the gateway config.
+**Note:** `CLOUDFLARE_AI_GATEWAY_API_KEY` must match the provider you're using. For Workers AI Unified Billing, use the AI Gateway authentication token. For third-party providers, use the upstream provider key forwarded through the gateway.
 
 #### Workers AI with Unified Billing
 
@@ -412,10 +413,11 @@ The previous `AI_GATEWAY_API_KEY` + `AI_GATEWAY_BASE_URL` approach is still supp
 
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `CLOUDFLARE_AI_GATEWAY_API_KEY` | Yes* | Your AI provider's API key, passed through the gateway (e.g., your Anthropic API key). Requires `CF_AI_GATEWAY_ACCOUNT_ID` and `CF_AI_GATEWAY_GATEWAY_ID` |
+| `CLOUDFLARE_AI_GATEWAY_API_KEY` | Yes* | AI Gateway authentication token for Workers AI Unified Billing, or upstream provider key for third-party providers. Requires `CF_AI_GATEWAY_ACCOUNT_ID` and `CF_AI_GATEWAY_GATEWAY_ID` |
 | `CF_AI_GATEWAY_ACCOUNT_ID` | Yes* | Your Cloudflare account ID (used to construct the gateway URL) |
 | `CF_AI_GATEWAY_GATEWAY_ID` | Yes* | Your AI Gateway ID (used to construct the gateway URL) |
-| `CF_AI_GATEWAY_MODEL` | No | Override default model: `provider/model-id` (e.g. `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast`). See [Choosing a Model](#choosing-a-model) |
+| `OPENCLAW_AI_GATEWAY_MODEL` | No | Preferred model override: `provider/model-id` (defaults to `workers-ai/@cf/moonshotai/kimi-k2.6`). Takes precedence over `CF_AI_GATEWAY_MODEL`. See [Choosing a Model](#choosing-a-model) |
+| `CF_AI_GATEWAY_MODEL` | No | Legacy model override: `provider/model-id` (kept for backward compatibility). See [Choosing a Model](#choosing-a-model) |
 | `ANTHROPIC_API_KEY` | Yes* | Direct Anthropic API key (alternative to AI Gateway) |
 | `ANTHROPIC_BASE_URL` | No | Direct Anthropic API base URL |
 | `OPENAI_API_KEY` | No | OpenAI API key (alternative provider) |

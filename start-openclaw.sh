@@ -71,6 +71,8 @@ node << 'EOFPATCH'
 const fs = require('fs');
 
 const configPath = '/root/.openclaw/openclaw.json';
+const DEFAULT_CF_AI_GATEWAY_MODEL = 'workers-ai/@cf/moonshotai/kimi-k2.6';
+
 console.log('Patching config at:', configPath);
 let config = {};
 
@@ -130,49 +132,64 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
 // so we don't need to patch the provider config. Writing a provider
 // entry without a models array breaks OpenClaw's config validation.
 
-// AI Gateway model override (CF_AI_GATEWAY_MODEL=provider/model-id)
-// Adds a provider entry for any AI Gateway provider and sets it as default model.
+// AI Gateway model selection (OPENCLAW_AI_GATEWAY_MODEL=provider/model-id).
+// This fork defaults to Kimi K2.6 on Workers AI through Cloudflare AI Gateway.
+// OPENCLAW_AI_GATEWAY_MODEL intentionally takes precedence over CF_AI_GATEWAY_MODEL
+// so stale deployment secrets from older Claude-based configs cannot win.
 // Examples:
-//   workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast
+//   workers-ai/@cf/moonshotai/kimi-k2.6
 //   openai/gpt-4o
 //   anthropic/claude-sonnet-4-5
-if (process.env.CF_AI_GATEWAY_MODEL) {
-    const raw = process.env.CF_AI_GATEWAY_MODEL;
+{
+    const raw = (process.env.OPENCLAW_AI_GATEWAY_MODEL || process.env.CF_AI_GATEWAY_MODEL || DEFAULT_CF_AI_GATEWAY_MODEL).trim();
     const slashIdx = raw.indexOf('/');
-    const gwProvider = raw.substring(0, slashIdx);
-    const modelId = raw.substring(slashIdx + 1);
 
-    const accountId = process.env.CF_AI_GATEWAY_ACCOUNT_ID;
-    const workersAiAccountId = process.env.CF_AI_GATEWAY_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID;
-    const gatewayId = process.env.CF_AI_GATEWAY_GATEWAY_ID;
-    const apiKey = process.env.CLOUDFLARE_AI_GATEWAY_API_KEY;
-
-    let baseUrl;
-    if (accountId && gatewayId) {
-        baseUrl = 'https://gateway.ai.cloudflare.com/v1/' + accountId + '/' + gatewayId + '/' + gwProvider;
-        if (gwProvider === 'workers-ai') baseUrl += '/v1';
-    } else if (gwProvider === 'workers-ai' && workersAiAccountId) {
-        baseUrl = 'https://api.cloudflare.com/client/v4/accounts/' + workersAiAccountId + '/ai/v1';
-    }
-
-    if (baseUrl && apiKey) {
-        const api = gwProvider === 'anthropic' ? 'anthropic-messages' : 'openai-completions';
-        const providerName = 'cf-ai-gw-' + gwProvider;
-
-        config.models = config.models || {};
-        config.models.providers = config.models.providers || {};
-        config.models.providers[providerName] = {
-            baseUrl: baseUrl,
-            apiKey: apiKey,
-            api: api,
-            models: [{ id: modelId, name: modelId, contextWindow: 131072, maxTokens: 8192 }],
-        };
-        config.agents = config.agents || {};
-        config.agents.defaults = config.agents.defaults || {};
-        config.agents.defaults.model = { primary: providerName + '/' + modelId };
-        console.log('AI Gateway model override: provider=' + providerName + ' model=' + modelId + ' via ' + baseUrl);
+    if (slashIdx <= 0 || slashIdx === raw.length - 1) {
+        console.warn('AI Gateway model must use provider/model-id format; got: ' + raw);
     } else {
-        console.warn('CF_AI_GATEWAY_MODEL set but missing required config (account ID, gateway ID, or API key)');
+        const gwProvider = raw.substring(0, slashIdx);
+        const modelId = raw.substring(slashIdx + 1);
+
+        const accountId = process.env.CF_AI_GATEWAY_ACCOUNT_ID;
+        const workersAiAccountId = process.env.CF_AI_GATEWAY_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID;
+        const gatewayId = process.env.CF_AI_GATEWAY_GATEWAY_ID;
+        const apiKey = process.env.CLOUDFLARE_AI_GATEWAY_API_KEY;
+
+        let baseUrl;
+        if (accountId && gatewayId) {
+            baseUrl = 'https://gateway.ai.cloudflare.com/v1/' + accountId + '/' + gatewayId + '/' + gwProvider;
+            if (gwProvider === 'workers-ai') baseUrl += '/v1';
+        } else if (gwProvider === 'workers-ai' && workersAiAccountId) {
+            baseUrl = 'https://api.cloudflare.com/client/v4/accounts/' + workersAiAccountId + '/ai/v1';
+        }
+
+        if (baseUrl && apiKey) {
+            const api = gwProvider === 'anthropic' ? 'anthropic-messages' : 'openai-completions';
+            const providerName = 'cf-ai-gw-' + gwProvider;
+            const isKimi26 = gwProvider === 'workers-ai' && modelId === '@cf/moonshotai/kimi-k2.6';
+
+            config.models = config.models || {};
+            config.models.providers = config.models.providers || {};
+            config.models.providers[providerName] = {
+                baseUrl: baseUrl,
+                apiKey: apiKey,
+                api: api,
+                models: [
+                    {
+                        id: modelId,
+                        name: modelId,
+                        contextWindow: isKimi26 ? 262144 : 131072,
+                        maxTokens: isKimi26 ? 16384 : 8192,
+                    },
+                ],
+            };
+            config.agents = config.agents || {};
+            config.agents.defaults = config.agents.defaults || {};
+            config.agents.defaults.model = { primary: providerName + '/' + modelId };
+            console.log('AI Gateway model selected: provider=' + providerName + ' model=' + modelId + ' via ' + baseUrl);
+        } else {
+            console.warn('AI Gateway model selected but missing required config (account ID, gateway ID, or API key)');
+        }
     }
 }
 

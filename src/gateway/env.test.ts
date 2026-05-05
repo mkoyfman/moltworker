@@ -130,12 +130,20 @@ describe('buildEnvVars', () => {
   });
 
   // AI Gateway model override
-  it('passes CF_AI_GATEWAY_MODEL to container', () => {
+  it('passes OPENCLAW_AI_GATEWAY_MODEL to container', () => {
     const env = createMockEnv({
-      CF_AI_GATEWAY_MODEL: 'workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+      OPENCLAW_AI_GATEWAY_MODEL: 'workers-ai/@cf/moonshotai/kimi-k2.6',
     });
     const result = buildEnvVars(env);
-    expect(result.CF_AI_GATEWAY_MODEL).toBe('workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+    expect(result.OPENCLAW_AI_GATEWAY_MODEL).toBe('workers-ai/@cf/moonshotai/kimi-k2.6');
+  });
+
+  it('passes CF_AI_GATEWAY_MODEL to container', () => {
+    const env = createMockEnv({
+      CF_AI_GATEWAY_MODEL: 'workers-ai/@cf/moonshotai/kimi-k2.6',
+    });
+    const result = buildEnvVars(env);
+    expect(result.CF_AI_GATEWAY_MODEL).toBe('workers-ai/@cf/moonshotai/kimi-k2.6');
   });
 
   it('combines all env vars correctly', () => {

@@ -7,6 +7,13 @@
   "observability": {
     "enabled": true,
   },
+  "vars": {
+    // Default OpenClaw model when using Cloudflare AI Gateway.
+    // This OpenClaw-specific var takes precedence over legacy CF_AI_GATEWAY_MODEL secrets.
+    // Format: provider/model-id
+    "OPENCLAW_AI_GATEWAY_MODEL": "workers-ai/@cf/moonshotai/kimi-k2.6",
+    "CF_AI_GATEWAY_MODEL": "workers-ai/@cf/moonshotai/kimi-k2.6",
+  },
   // Static assets for admin UI (built by vite)
   "assets": {
     "directory": "./dist/client",
@@ -85,6 +92,8 @@
   //   - CLOUDFLARE_AI_GATEWAY_API_KEY: API key for requests through the gateway
   //   - CF_AI_GATEWAY_ACCOUNT_ID: Your Cloudflare account ID
   //   - CF_AI_GATEWAY_GATEWAY_ID: Your AI Gateway ID
+  //   - OPENCLAW_AI_GATEWAY_MODEL: Optional model override, defaults to workers-ai/@cf/moonshotai/kimi-k2.6
+  //   - CF_AI_GATEWAY_MODEL: Optional model override, defaults to workers-ai/@cf/moonshotai/kimi-k2.6
   // - Legacy AI Gateway (still supported):
   //   - AI_GATEWAY_API_KEY: API key
   //   - AI_GATEWAY_BASE_URL: Gateway endpoint URL
