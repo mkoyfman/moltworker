@@ -4,6 +4,30 @@ import { GATEWAY_PORT } from '../config';
 import { ensureGateway, findExistingGatewayProcess } from '../gateway';
 import { restoreIfNeeded } from '../persistence';
 
+async function getProcessDiagnostics(
+  process: {
+    id: string;
+    status: string;
+    exitCode?: number | null;
+    getStatus?: () => Promise<string>;
+    getLogs?: () => Promise<{ stdout?: string; stderr?: string }>;
+  },
+  waitMs = 0,
+) {
+  if (waitMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  const status = process.getStatus ? await process.getStatus() : process.status;
+  const logs = process.getLogs ? await process.getLogs() : { stdout: '', stderr: '' };
+  return {
+    processId: process.id,
+    processStatus: status,
+    exitCode: process.exitCode ?? null,
+    stdout: logs.stdout?.slice(-4000) ?? '',
+    stderr: logs.stderr?.slice(-4000) ?? '',
+  };
+}
+
 /**
  * Public routes - NO Cloudflare Access authentication required
  *
@@ -58,7 +82,27 @@ publicRoutes.get('/api/status', async (c) => {
       // the process and check if the port is up.
       console.log('[api/status] No process found, starting gateway...');
       try {
-        await ensureGateway(sandbox, c.env, { waitForReady: false });
+        const started = await ensureGateway(sandbox, c.env, { waitForReady: false });
+        if (started) {
+          const diagnostics = await getProcessDiagnostics(started, 3000);
+          if (diagnostics.processStatus !== 'running' && diagnostics.processStatus !== 'starting') {
+            console.error('[api/status] Gateway exited during startup:', diagnostics);
+            return c.json({
+              ok: false,
+              status: 'start_failed',
+              error: `Gateway exited during startup with status ${diagnostics.processStatus}`,
+              restoreError,
+              diagnostics,
+            });
+          }
+          return c.json({
+            ok: false,
+            status: 'starting',
+            restoreError,
+            processId: diagnostics.processId,
+            processStatus: diagnostics.processStatus,
+          });
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[api/status] Gateway start failed:', msg);
@@ -80,7 +124,21 @@ publicRoutes.get('/api/status', async (c) => {
       await process.waitForPort(18789, { mode: 'tcp', timeout: 5000 });
       return c.json({ ok: true, status: 'running', processId: process.id });
     } catch {
-      return c.json({ ok: false, status: 'not_responding', processId: process.id });
+      const diagnostics = await getProcessDiagnostics(process);
+      if (diagnostics.processStatus !== 'running' && diagnostics.processStatus !== 'starting') {
+        return c.json({
+          ok: false,
+          status: 'start_failed',
+          error: `Gateway exited with status ${diagnostics.processStatus}`,
+          diagnostics,
+        });
+      }
+      return c.json({
+        ok: false,
+        status: 'not_responding',
+        processId: process.id,
+        processStatus: diagnostics.processStatus,
+      });
     }
   } catch (err) {
     return c.json({
