@@ -128,6 +128,7 @@ if (process.env.CF_AI_GATEWAY_MODEL) {
     const modelId = raw.substring(slashIdx + 1);
 
     const accountId = process.env.CF_AI_GATEWAY_ACCOUNT_ID;
+    const workersAiAccountId = process.env.CF_AI_GATEWAY_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID;
     const gatewayId = process.env.CF_AI_GATEWAY_GATEWAY_ID;
     const apiKey = process.env.CLOUDFLARE_AI_GATEWAY_API_KEY;
 
@@ -135,8 +136,8 @@ if (process.env.CF_AI_GATEWAY_MODEL) {
     if (accountId && gatewayId) {
         baseUrl = 'https://gateway.ai.cloudflare.com/v1/' + accountId + '/' + gatewayId + '/' + gwProvider;
         if (gwProvider === 'workers-ai') baseUrl += '/v1';
-    } else if (gwProvider === 'workers-ai' && process.env.CF_ACCOUNT_ID) {
-        baseUrl = 'https://api.cloudflare.com/client/v4/accounts/' + process.env.CF_ACCOUNT_ID + '/ai/v1';
+    } else if (gwProvider === 'workers-ai' && workersAiAccountId) {
+        baseUrl = 'https://api.cloudflare.com/client/v4/accounts/' + workersAiAccountId + '/ai/v1';
     }
 
     if (baseUrl && apiKey) {

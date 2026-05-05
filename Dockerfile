@@ -22,7 +22,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
 
 # Install OpenClaw
 # Pin to specific version for reproducible builds
-ARG OPENCLAW_VERSION=latest
+ARG OPENCLAW_VERSION=2026.5.3-1
 RUN npm install -g openclaw@${OPENCLAW_VERSION} \
     && openclaw --version
 
@@ -37,7 +37,7 @@ RUN mkdir -p /home/openclaw/.openclaw \
     && ln -s /home/openclaw/clawd /root/clawd
 
 # Copy startup script
-# Build cache bust: 2026-03-26-v32-home-dir
+# Build cache bust: 2026-05-04-openclaw-2026.5.3-1
 COPY start-openclaw.sh /usr/local/bin/start-openclaw.sh
 RUN chmod +x /usr/local/bin/start-openclaw.sh
 
