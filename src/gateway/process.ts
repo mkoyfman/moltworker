@@ -152,16 +152,22 @@ export async function ensureGateway(
   if (existingProcess) {
     if (existingProcess.status === 'running') {
       try {
-        const configCurrent = await isGatewayModelConfigCurrent(sandbox);
-        if (!configCurrent) {
-          console.log('Existing gateway model config is stale, killing and restarting...');
-          try {
-            await existingProcess.kill();
-          } catch (killError) {
-            console.log('Failed to kill stale gateway process:', killError);
+        if (await isGatewayPortOpen(sandbox)) {
+          const configCurrent = await isGatewayModelConfigCurrent(sandbox);
+          if (!configCurrent) {
+            console.log('Existing gateway model config is stale, killing and restarting...');
+            try {
+              await existingProcess.kill();
+            } catch (killError) {
+              console.log('Failed to kill stale gateway process:', killError);
+            }
+            await killGateway(sandbox);
+            return ensureGateway(sandbox, env, options);
           }
-          await killGateway(sandbox);
-          return ensureGateway(sandbox, env, options);
+        } else {
+          console.log(
+            'Existing gateway process is running but port is not ready; skipping config drift check for now',
+          );
         }
       } catch (e) {
         console.log('Could not verify gateway model config, continuing with existing process:', e);

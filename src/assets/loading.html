@@ -203,7 +203,20 @@
           }
 
           // Update status message based on state
-          if (data.status === 'not_running') {
+          if (data.status === 'start_failed' || data.status === 'error') {
+            const details = [
+              data.error,
+              data.restoreError ? 'Restore: ' + data.restoreError : '',
+              data.diagnostics?.stderr ? 'stderr: ' + data.diagnostics.stderr : '',
+              data.diagnostics?.stdout ? 'stdout: ' + data.diagnostics.stdout : '',
+            ]
+              .filter(Boolean)
+              .join('\n\n');
+            errorEl.textContent = details || 'Gateway startup failed.';
+            errorEl.style.display = 'block';
+            statusEl.textContent = 'Gateway startup failed';
+            return;
+          } else if (data.status === 'not_running') {
             statusEl.textContent = 'Container is starting up...';
           } else if (data.status === 'not_responding') {
             statusEl.textContent = 'Container started, waiting for gateway...';
