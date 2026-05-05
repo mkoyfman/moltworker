@@ -69,9 +69,11 @@ fi
 # - Base URL override for legacy AI Gateway path
 node << 'EOFPATCH'
 const fs = require('fs');
+const path = require('path');
 
 const configPath = '/root/.openclaw/openclaw.json';
 const DEFAULT_CF_AI_GATEWAY_MODEL = 'workers-ai/@cf/moonshotai/kimi-k2.6';
+const CF_AI_GATEWAY_COMPAT_PROVIDER_ID = 'cloudflare-ai-gateway-workers-ai';
 
 console.log('Patching config at:', configPath);
 let config = {};
@@ -132,10 +134,12 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
 // so we don't need to patch the provider config. Writing a provider
 // entry without a models array breaks OpenClaw's config validation.
 
-// AI Gateway model selection (OPENCLAW_AI_GATEWAY_MODEL=provider/model-id).
-// This fork defaults to Kimi K2.6 on Workers AI through Cloudflare AI Gateway.
-// OPENCLAW_AI_GATEWAY_MODEL intentionally takes precedence over CF_AI_GATEWAY_MODEL
-// so stale deployment secrets from older Claude-based configs cannot win.
+// AI Gateway model selection (OPENCLAW_AI_GATEWAY_MODEL=gateway-provider/model-id).
+// This fork defaults to Kimi K2.6 on Workers AI through Cloudflare AI Gateway's
+// OpenAI-compatible "compat" endpoint. The model id sent to Cloudflare must
+// include the gateway provider prefix, e.g. workers-ai/@cf/moonshotai/kimi-k2.6.
+// OPENCLAW_AI_GATEWAY_MODEL intentionally takes precedence over CF_AI_GATEWAY_MODEL,
+// and we also rewrite stale Claude allowlist/session selections restored from R2.
 // Examples:
 //   workers-ai/@cf/moonshotai/kimi-k2.6
 //   openai/gpt-4o
@@ -143,53 +147,163 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
 {
     const raw = (process.env.OPENCLAW_AI_GATEWAY_MODEL || process.env.CF_AI_GATEWAY_MODEL || DEFAULT_CF_AI_GATEWAY_MODEL).trim();
     const slashIdx = raw.indexOf('/');
+    const selectedProviderName = CF_AI_GATEWAY_COMPAT_PROVIDER_ID;
+    const selectedModelId = raw;
+    const selectedModelRef = selectedProviderName + '/' + selectedModelId;
 
     if (slashIdx <= 0 || slashIdx === raw.length - 1) {
         console.warn('AI Gateway model must use provider/model-id format; got: ' + raw);
     } else {
-        const gwProvider = raw.substring(0, slashIdx);
-        const modelId = raw.substring(slashIdx + 1);
-
         const accountId = process.env.CF_AI_GATEWAY_ACCOUNT_ID;
-        const workersAiAccountId = process.env.CF_AI_GATEWAY_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID;
         const gatewayId = process.env.CF_AI_GATEWAY_GATEWAY_ID;
         const apiKey = process.env.CLOUDFLARE_AI_GATEWAY_API_KEY;
 
         let baseUrl;
         if (accountId && gatewayId) {
-            baseUrl = 'https://gateway.ai.cloudflare.com/v1/' + accountId + '/' + gatewayId + '/' + gwProvider;
-            if (gwProvider === 'workers-ai') baseUrl += '/v1';
-        } else if (gwProvider === 'workers-ai' && workersAiAccountId) {
-            baseUrl = 'https://api.cloudflare.com/client/v4/accounts/' + workersAiAccountId + '/ai/v1';
+            baseUrl = 'https://gateway.ai.cloudflare.com/v1/' + accountId + '/' + gatewayId + '/compat';
         }
 
         if (baseUrl && apiKey) {
-            const api = gwProvider === 'anthropic' ? 'anthropic-messages' : 'openai-completions';
-            const providerName = 'cf-ai-gw-' + gwProvider;
-            const isKimi26 = gwProvider === 'workers-ai' && modelId === '@cf/moonshotai/kimi-k2.6';
+            const isKimi26 = selectedModelId === DEFAULT_CF_AI_GATEWAY_MODEL;
 
             config.models = config.models || {};
             config.models.providers = config.models.providers || {};
-            config.models.providers[providerName] = {
+            delete config.models.providers['cloudflare-ai-gateway'];
+            delete config.models.providers['cf-ai-gw-workers-ai'];
+            config.models.providers[selectedProviderName] = {
                 baseUrl: baseUrl,
                 apiKey: apiKey,
-                api: api,
+                api: 'openai-completions',
+                headers: { 'cf-aig-authorization': 'Bearer ' + apiKey },
                 models: [
                     {
-                        id: modelId,
-                        name: modelId,
+                        id: selectedModelId,
+                        name: isKimi26 ? 'Kimi K2.6 (Workers AI via Cloudflare AI Gateway)' : selectedModelId,
                         contextWindow: isKimi26 ? 262144 : 131072,
                         maxTokens: isKimi26 ? 16384 : 8192,
+                        input: ['text'],
                     },
                 ],
             };
+
             config.agents = config.agents || {};
             config.agents.defaults = config.agents.defaults || {};
-            config.agents.defaults.model = { primary: providerName + '/' + modelId };
-            console.log('AI Gateway model selected: provider=' + providerName + ' model=' + modelId + ' via ' + baseUrl);
+            config.agents.defaults.model = { primary: selectedModelRef };
+
+            const allowedModels = { ...(config.agents.defaults.models || {}) };
+            for (const key of Object.keys(allowedModels)) {
+                const normalized = key.toLowerCase();
+                if (
+                    normalized.includes('claude') ||
+                    normalized.startsWith('cloudflare-ai-gateway/') ||
+                    normalized.startsWith('cf-ai-gw-workers-ai/') ||
+                    normalized.startsWith('cloudflare-ai-gateway-workers-ai/')
+                ) {
+                    delete allowedModels[key];
+                }
+            }
+            allowedModels[selectedModelRef] = {
+                ...(allowedModels[selectedModelRef] || {}),
+                alias: isKimi26 ? 'Kimi K2.6' : selectedModelId,
+            };
+            config.agents.defaults.models = allowedModels;
+
+            if (Array.isArray(config.agents.list)) {
+                for (const agent of config.agents.list) {
+                    if (!agent || typeof agent !== 'object') continue;
+                    const currentPrimary = typeof agent.model === 'string' ? agent.model : agent.model?.primary;
+                    if (isStaleClaudeModelRef(currentPrimary)) {
+                        agent.model = { primary: selectedModelRef };
+                    }
+                }
+            }
+
+            rewriteStaleSessionModelSelections({
+                configDir: path.dirname(configPath),
+                provider: selectedProviderName,
+                model: selectedModelId,
+            });
+
+            console.log('AI Gateway model selected: provider=' + selectedProviderName + ' model=' + selectedModelId + ' via ' + baseUrl);
         } else {
             console.warn('AI Gateway model selected but missing required config (account ID, gateway ID, or API key)');
         }
+    }
+}
+
+function isStaleClaudeModelRef(value) {
+    if (typeof value !== 'string') return false;
+    const normalized = value.trim().toLowerCase();
+    return (
+        normalized.includes('claude') ||
+        normalized.startsWith('cloudflare-ai-gateway/') ||
+        normalized.startsWith('cloudflare-ai-gateway:') ||
+        normalized.startsWith('cf-ai-gw-workers-ai/') ||
+        normalized.startsWith('cloudflare-ai-gateway-workers-ai/')
+    );
+}
+
+function rewriteStaleSessionModelSelections({ configDir, provider, model }) {
+    const agentsDir = path.join(configDir, 'agents');
+    if (!fs.existsSync(agentsDir)) return;
+
+    const sessionStorePaths = [];
+    const visit = (dir) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                visit(fullPath);
+            } else if (entry.isFile() && entry.name === 'sessions.json') {
+                sessionStorePaths.push(fullPath);
+            }
+        }
+    };
+    visit(agentsDir);
+
+    let rewrittenStores = 0;
+    let rewrittenEntries = 0;
+    for (const storePath of sessionStorePaths) {
+        let store;
+        try {
+            store = JSON.parse(fs.readFileSync(storePath, 'utf8'));
+        } catch (err) {
+            console.warn('Could not read session store for model rewrite: ' + storePath + ' (' + String(err) + ')');
+            continue;
+        }
+        if (!store || typeof store !== 'object' || Array.isArray(store)) continue;
+
+        let changed = false;
+        for (const entry of Object.values(store)) {
+            if (!entry || typeof entry !== 'object') continue;
+            const stale =
+                isStaleClaudeModelRef(entry.providerOverride + '/' + entry.modelOverride) ||
+                isStaleClaudeModelRef(entry.modelProvider + '/' + entry.model) ||
+                isStaleClaudeModelRef(entry.modelOverride) ||
+                isStaleClaudeModelRef(entry.model);
+            if (!stale) continue;
+
+            entry.providerOverride = provider;
+            entry.modelOverride = model;
+            entry.modelOverrideSource = 'system';
+            entry.modelProvider = provider;
+            entry.model = model;
+            if (isStaleClaudeModelRef(entry.authProfileOverride || '')) {
+                delete entry.authProfileOverride;
+                delete entry.authProfileOverrideSource;
+            }
+            entry.liveModelSwitchPending = true;
+            changed = true;
+            rewrittenEntries++;
+        }
+
+        if (changed) {
+            fs.writeFileSync(storePath, JSON.stringify(store, null, 2));
+            rewrittenStores++;
+        }
+    }
+
+    if (rewrittenStores > 0) {
+        console.log('Rewrote stale Claude model selections in ' + rewrittenEntries + ' session entries across ' + rewrittenStores + ' stores');
     }
 }
 

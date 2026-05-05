@@ -351,7 +351,7 @@ See `skills/cloudflare-browser/SKILL.md` for full documentation.
 
 You can route API requests through [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) for caching, rate limiting, analytics, and cost tracking. This fork defaults OpenClaw to Kimi K2.6 on Workers AI via Cloudflare AI Gateway.
 
-AI Gateway acts as a proxy between OpenClaw and your AI provider. For the default Workers AI model, requests are sent through `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/workers-ai/v1` and billed/authenticated by Cloudflare. Other providers such as Anthropic or OpenAI can still be used by changing `OPENCLAW_AI_GATEWAY_MODEL`.
+AI Gateway acts as a proxy between OpenClaw and your AI provider. For the default Workers AI model, requests are sent through `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat` using Cloudflare AI Gateway's OpenAI-compatible unified API. Other providers such as Anthropic or OpenAI can still be used by changing `OPENCLAW_AI_GATEWAY_MODEL`.
 
 ### Setup
 
