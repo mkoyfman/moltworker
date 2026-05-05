@@ -3,6 +3,9 @@ import type { OpenClawEnv } from '../types';
 import { GATEWAY_PORT, STARTUP_TIMEOUT_MS } from '../config';
 import { buildEnvVars } from './env';
 
+const EXPECTED_MODEL_REF = 'cloudflare-ai-gateway-workers-ai/workers-ai/@cf/moonshotai/kimi-k2.6';
+const EXPECTED_PROVIDER_ID = 'cloudflare-ai-gateway-workers-ai';
+
 /**
  * Force kill the gateway process and clean up lock files.
  *
@@ -56,6 +59,29 @@ export async function killGateway(sandbox: Sandbox): Promise<void> {
  */
 export async function isGatewayPortOpen(sandbox: Sandbox): Promise<boolean> {
   const result = await sandbox.exec(`nc -z localhost ${GATEWAY_PORT}`);
+  return result.exitCode === 0;
+}
+
+/**
+ * Check whether the on-disk OpenClaw config has been patched to the expected
+ * Workers AI model. This catches long-lived containers whose gateway process
+ * survived a Worker deploy and therefore never reran start-openclaw.sh.
+ */
+export async function isGatewayModelConfigCurrent(sandbox: Sandbox): Promise<boolean> {
+  const script = [
+    "const fs = require('fs');",
+    "const config = JSON.parse(fs.readFileSync('/root/.openclaw/openclaw.json', 'utf8'));",
+    `const expectedModel = ${JSON.stringify(EXPECTED_MODEL_REF)};`,
+    `const expectedProvider = ${JSON.stringify(EXPECTED_PROVIDER_ID)};`,
+    'const primary = config.agents?.defaults?.model?.primary;',
+    'const allowed = config.agents?.defaults?.models || {};',
+    'const providers = config.models?.providers || {};',
+    'const serialized = JSON.stringify(config);',
+    'const staleClaude = /cloudflare-ai-gateway\\/claude|claude-sonnet/i.test(serialized);',
+    'const ok = primary === expectedModel && Boolean(allowed[expectedModel]) && Boolean(providers[expectedProvider]) && !staleClaude;',
+    'process.exit(ok ? 0 : 1);',
+  ].join(' ');
+  const result = await sandbox.exec(`node -e ${JSON.stringify(script)}`);
   return result.exitCode === 0;
 }
 
@@ -121,12 +147,34 @@ export async function ensureGateway(
   // Check if gateway is already running or starting
   const existingProcess = await findExistingGatewayProcess(sandbox);
   if (existingProcess) {
+    if (existingProcess.status === 'running') {
+      try {
+        const configCurrent = await isGatewayModelConfigCurrent(sandbox);
+        if (!configCurrent) {
+          console.log('Existing gateway model config is stale, killing and restarting...');
+          try {
+            await existingProcess.kill();
+          } catch (killError) {
+            console.log('Failed to kill stale gateway process:', killError);
+          }
+          await killGateway(sandbox);
+          return ensureGateway(sandbox, env, options);
+        }
+      } catch (e) {
+        console.log('Could not verify gateway model config, continuing with existing process:', e);
+      }
+    }
+
     console.log(
       'Found existing gateway process:',
       existingProcess.id,
       'status:',
       existingProcess.status,
     );
+
+    if (!waitForReady) {
+      return existingProcess;
+    }
 
     // Always use full startup timeout - a process can be "running" but not ready yet
     // (e.g., just started by another concurrent request). Using a shorter timeout
@@ -153,6 +201,17 @@ export async function ensureGateway(
   // Probe the port directly — if it's open, the gateway is up and we're done.
   try {
     if (await isGatewayPortOpen(sandbox)) {
+      try {
+        const configCurrent = await isGatewayModelConfigCurrent(sandbox);
+        if (!configCurrent) {
+          console.log('Undetected gateway has stale model config, killing and restarting...');
+          await killGateway(sandbox);
+          return ensureGateway(sandbox, env, options);
+        }
+      } catch (e) {
+        console.log('Could not verify undetected gateway model config, keeping open port:', e);
+      }
+
       console.log(
         `Port ${GATEWAY_PORT} already open — gateway running but undetected by listProcesses(), skipping spawn`,
       );

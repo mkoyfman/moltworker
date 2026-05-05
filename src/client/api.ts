@@ -46,6 +46,11 @@ export interface ApproveResponse {
   stdout?: string;
   stderr?: string;
   error?: string;
+  backup?: {
+    id: string;
+    dir: string;
+    createdAt?: string;
+  } | null;
 }
 
 export interface ApproveAllResponse {
@@ -53,6 +58,11 @@ export interface ApproveAllResponse {
   failed: Array<{ requestId: string; success: boolean; error?: string }>;
   message?: string;
   error?: string;
+  backup?: {
+    id: string;
+    dir: string;
+    createdAt?: string;
+  } | null;
 }
 
 export class AuthError extends Error {

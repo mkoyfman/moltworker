@@ -99,6 +99,17 @@ export default function AdminPage() {
     try {
       const result = await approveDevice(requestId);
       if (result.success) {
+        if (result.backup) {
+          setStorageStatus((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  lastBackupId: result.backup?.id || prev.lastBackupId,
+                  lastBackupAt: result.backup?.createdAt || prev.lastBackupAt,
+                }
+              : prev,
+          );
+        }
         // Refresh the list
         await fetchDevices();
       } else {
@@ -119,6 +130,17 @@ export default function AdminPage() {
       const result = await approveAllDevices();
       if (result.failed && result.failed.length > 0) {
         setError(`Failed to approve ${result.failed.length} device(s)`);
+      }
+      if (result.backup) {
+        setStorageStatus((prev) =>
+          prev
+            ? {
+                ...prev,
+                lastBackupId: result.backup?.id || prev.lastBackupId,
+                lastBackupAt: result.backup?.createdAt || prev.lastBackupAt,
+              }
+            : prev,
+        );
       }
       // Refresh the list
       await fetchDevices();

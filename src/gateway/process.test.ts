@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { findExistingGatewayProcess, isGatewayPortOpen } from './process';
+import {
+  findExistingGatewayProcess,
+  isGatewayModelConfigCurrent,
+  isGatewayPortOpen,
+} from './process';
 import type { Sandbox, Process } from '@cloudflare/sandbox';
 import { createMockSandbox, createMockExecResult } from '../test-utils';
 
@@ -180,5 +184,29 @@ describe('isGatewayPortOpen', () => {
     execMock.mockRejectedValue(new Error('container not ready'));
 
     await expect(isGatewayPortOpen(sandbox)).rejects.toThrow('container not ready');
+  });
+});
+
+describe('isGatewayModelConfigCurrent', () => {
+  it('returns true when the config check exits successfully', async () => {
+    const { sandbox, execMock } = createMockSandbox();
+    execMock.mockResolvedValue(createMockExecResult('', { exitCode: 0 }));
+
+    const result = await isGatewayModelConfigCurrent(sandbox);
+
+    expect(result).toBe(true);
+    expect(execMock).toHaveBeenCalledOnce();
+    expect(execMock.mock.calls[0][0]).toContain('/root/.openclaw/openclaw.json');
+    expect(execMock.mock.calls[0][0]).toContain('@cf/moonshotai/kimi-k2.6');
+    expect(execMock.mock.calls[0][0]).toContain('cloudflare-ai-gateway-workers-ai');
+  });
+
+  it('returns false when the config check exits unsuccessfully', async () => {
+    const { sandbox, execMock } = createMockSandbox();
+    execMock.mockResolvedValue(createMockExecResult('', { exitCode: 1 }));
+
+    const result = await isGatewayModelConfigCurrent(sandbox);
+
+    expect(result).toBe(false);
   });
 });

@@ -1,2 +1,7 @@
-export { ensureGateway, findExistingGatewayProcess, killGateway } from './process';
+export {
+  ensureGateway,
+  findExistingGatewayProcess,
+  isGatewayModelConfigCurrent,
+  killGateway,
+} from './process';
 export { waitForProcess } from './utils';

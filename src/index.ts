@@ -176,10 +176,10 @@ app.use('*', async (c, next) => {
   c.set('sandbox', sandbox);
 
   // NOTE: restoreIfNeeded is NOT called here in the global middleware.
-  // It's called only from the catch-all route (gateway proxy) and /api/status.
-  // Calling it on admin routes (sync, debug/cli) would mount a FUSE overlay
-  // that interferes with createBackup — the SDK resets the overlay on backup,
-  // wiping any upper-layer writes made since the last restore.
+  // It's called from gateway startup paths, primarily the catch-all route and
+  // /api/status. Admin storage/debug routes must not restore because that would
+  // mount a FUSE overlay that interferes with createBackup — the SDK resets the
+  // overlay on backup, wiping any upper-layer writes made since the last restore.
 
   await next();
 });
@@ -292,7 +292,13 @@ app.all('*', async (c) => {
         findExistingGatewayProcess(sandbox),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 3_000)),
       ]);
-      gatewayReady = proc !== null && proc.status === 'running';
+      if (proc !== null && proc.status === 'running') {
+        // ensureGateway performs config drift detection. If a deployed Worker
+        // update changed start-openclaw.sh but the old container process is
+        // still alive, this restarts it before serving the Control UI.
+        const currentProc = await ensureGateway(sandbox, c.env, { waitForReady: false });
+        gatewayReady = currentProc !== null && currentProc.status === 'running';
+      }
     } catch {
       // Treat as not ready
     }
@@ -343,6 +349,16 @@ app.all('*', async (c) => {
       wsRequest = new Request(tokenUrl.toString(), request);
     }
     wsRequest = withGatewayLocalOrigin(wsRequest);
+
+    try {
+      const existingProcess = await findExistingGatewayProcess(sandbox);
+      if (!existingProcess) {
+        await restoreIfNeeded(sandbox, c.env.BACKUP_BUCKET);
+      }
+      await ensureGateway(sandbox, c.env, { waitForReady: false });
+    } catch (err) {
+      console.error('[WS] Failed to verify gateway before WebSocket proxy:', err);
+    }
 
     // Get WebSocket connection to the container (with retry on crash)
     let containerResponse: Response;

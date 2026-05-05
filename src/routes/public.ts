@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import { GATEWAY_PORT } from '../config';
-import { findExistingGatewayProcess, ensureGateway } from '../gateway';
+import { ensureGateway, findExistingGatewayProcess } from '../gateway';
 import { restoreIfNeeded } from '../persistence';
 
 /**
@@ -65,6 +65,13 @@ publicRoutes.get('/api/status', async (c) => {
         return c.json({ ok: false, status: 'start_failed', error: msg, restoreError });
       }
       return c.json({ ok: false, status: 'starting', restoreError });
+    }
+
+    // Process exists. ensureGateway performs a cheap config drift check and
+    // restarts old containers that still point at Claude after a deploy.
+    process = await ensureGateway(sandbox, c.env, { waitForReady: false });
+    if (!process) {
+      return c.json({ ok: false, status: 'starting', restoreError: null });
     }
 
     // Process exists, check if it's actually responding

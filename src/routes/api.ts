@@ -2,7 +2,12 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import { createAccessMiddleware } from '../auth';
 import { ensureGateway, findExistingGatewayProcess, killGateway, waitForProcess } from '../gateway';
-import { createSnapshot, getLastBackupInfo, signalRestoreNeeded } from '../persistence';
+import {
+  createSnapshot,
+  getLastBackupInfo,
+  restoreIfNeeded,
+  signalRestoreNeeded,
+} from '../persistence';
 
 // CLI commands can take 10-15 seconds to complete due to WebSocket connection overhead
 const CLI_TIMEOUT_MS = 20000;
@@ -20,6 +25,36 @@ const api = new Hono<AppEnv>();
  */
 const adminApi = new Hono<AppEnv>();
 
+async function restoreThenEnsureGateway(
+  sandbox: AppEnv['Variables']['sandbox'],
+  env: AppEnv['Bindings'],
+) {
+  const existingProcess = await findExistingGatewayProcess(sandbox);
+  if (!existingProcess) {
+    try {
+      await restoreIfNeeded(sandbox, env.BACKUP_BUCKET);
+    } catch (err) {
+      console.error('[Admin API] Restore before gateway start failed:', err);
+    }
+  }
+  return ensureGateway(sandbox, env);
+}
+
+async function snapshotBestEffort(
+  sandbox: AppEnv['Variables']['sandbox'],
+  bucket: R2Bucket,
+  reason: string,
+) {
+  try {
+    const handle = await createSnapshot(sandbox, bucket);
+    console.log(`[Admin API] Snapshot after ${reason}:`, handle.id);
+    return handle;
+  } catch (err) {
+    console.error(`[Admin API] Snapshot after ${reason} failed:`, err);
+    return null;
+  }
+}
+
 // Middleware: Verify Cloudflare Access JWT for all admin routes
 adminApi.use('*', createAccessMiddleware({ type: 'json' }));
 
@@ -28,8 +63,8 @@ adminApi.get('/devices', async (c) => {
   const sandbox = c.get('sandbox');
 
   try {
-    // Ensure gateway is running first
-    await ensureGateway(sandbox, c.env);
+    // Restore before starting the gateway so paired-device state survives redeploys.
+    await restoreThenEnsureGateway(sandbox, c.env);
 
     // Run OpenClaw CLI to list devices
     // Must specify --url and --token (OpenClaw v2026.2.3 requires explicit credentials with --url)
@@ -85,8 +120,8 @@ adminApi.post('/devices/:requestId/approve', async (c) => {
   }
 
   try {
-    // Ensure gateway is running first
-    await ensureGateway(sandbox, c.env);
+    // Restore before starting the gateway so approvals are applied to persisted state.
+    await restoreThenEnsureGateway(sandbox, c.env);
 
     // Run OpenClaw CLI to approve the device
     const token = c.env.MOLTBOT_GATEWAY_TOKEN;
@@ -109,6 +144,9 @@ adminApi.post('/devices/:requestId/approve', async (c) => {
       message: success ? 'Device approved' : 'Approval may have failed',
       stdout,
       stderr,
+      backup: success
+        ? await snapshotBestEffort(sandbox, c.env.BACKUP_BUCKET, 'device approval')
+        : null,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -121,8 +159,8 @@ adminApi.post('/devices/approve-all', async (c) => {
   const sandbox = c.get('sandbox');
 
   try {
-    // Ensure gateway is running first
-    await ensureGateway(sandbox, c.env);
+    // Restore before starting the gateway so approvals are applied to persisted state.
+    await restoreThenEnsureGateway(sandbox, c.env);
 
     // First, get the list of pending devices
     const token = c.env.MOLTBOT_GATEWAY_TOKEN;
@@ -179,10 +217,15 @@ adminApi.post('/devices/approve-all', async (c) => {
     }
 
     const approvedCount = results.filter((r) => r.success).length;
+    const backup =
+      approvedCount > 0
+        ? await snapshotBestEffort(sandbox, c.env.BACKUP_BUCKET, 'bulk device approval')
+        : null;
     return c.json({
       approved: results.filter((r) => r.success).map((r) => r.requestId),
       failed: results.filter((r) => !r.success),
       message: `Approved ${approvedCount} of ${pending.length} device(s)`,
+      backup,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

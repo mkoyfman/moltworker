@@ -221,8 +221,8 @@ R2 storage uses a backup/restore approach for simplicity:
 - OpenClaw uses its default paths (no special configuration needed)
 
 **During operation:**
-- A cron job runs every 5 minutes to sync the moltbot config to R2
-- You can also trigger a manual backup from the admin UI at `/_admin/`
+- Approving a paired device from the admin UI creates a best-effort R2 snapshot
+- You can trigger a manual backup from the admin UI at `/_admin/`
 
 **In the admin UI:**
 - When R2 is configured, you'll see "Last backup: [timestamp]"
