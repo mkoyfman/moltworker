@@ -3,8 +3,8 @@ import type { OpenClawEnv } from '../types';
 import { GATEWAY_PORT, STARTUP_TIMEOUT_MS } from '../config';
 import { buildEnvVars } from './env';
 
-const EXPECTED_MODEL_REF = 'cloudflare-ai-gateway-workers-ai/workers-ai/@cf/moonshotai/kimi-k2.6';
-const EXPECTED_PROVIDER_ID = 'cloudflare-ai-gateway-workers-ai';
+const EXPECTED_MODEL_REF = 'cf-ai-gw-workers-ai/@cf/moonshotai/kimi-k2.6';
+const EXPECTED_PROVIDER_ID = 'cf-ai-gw-workers-ai';
 
 /**
  * Force kill the gateway process and clean up lock files.
@@ -77,7 +77,7 @@ export async function isGatewayModelConfigCurrent(sandbox: Sandbox): Promise<boo
     'const allowed = config.agents?.defaults?.models || {};',
     'const providers = config.models?.providers || {};',
     'const provider = providers[expectedProvider];',
-    'const model = Array.isArray(provider?.models) ? provider.models.find((entry) => entry?.id === "workers-ai/@cf/moonshotai/kimi-k2.6") : null;',
+    'const model = Array.isArray(provider?.models) ? provider.models.find((entry) => entry?.id === "@cf/moonshotai/kimi-k2.6") : null;',
     'const serialized = JSON.stringify(config);',
     'const staleClaude = /cloudflare-ai-gateway\\/claude|claude-sonnet/i.test(serialized);',
     'const validModel = model?.api === "openai-completions" && typeof model?.reasoning === "boolean" && Boolean(model?.cost) && Number.isFinite(model?.contextWindow) && Number.isFinite(model?.maxTokens);',

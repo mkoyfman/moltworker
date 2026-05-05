@@ -198,7 +198,7 @@ describe('isGatewayModelConfigCurrent', () => {
     expect(execMock).toHaveBeenCalledOnce();
     expect(execMock.mock.calls[0][0]).toContain('/root/.openclaw/openclaw.json');
     expect(execMock.mock.calls[0][0]).toContain('@cf/moonshotai/kimi-k2.6');
-    expect(execMock.mock.calls[0][0]).toContain('cloudflare-ai-gateway-workers-ai');
+    expect(execMock.mock.calls[0][0]).toContain('cf-ai-gw-workers-ai');
   });
 
   it('returns false when the config check exits unsuccessfully', async () => {

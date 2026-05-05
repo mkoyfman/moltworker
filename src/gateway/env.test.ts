@@ -130,14 +130,6 @@ describe('buildEnvVars', () => {
   });
 
   // AI Gateway model override
-  it('passes OPENCLAW_AI_GATEWAY_MODEL to container', () => {
-    const env = createMockEnv({
-      OPENCLAW_AI_GATEWAY_MODEL: 'workers-ai/@cf/moonshotai/kimi-k2.6',
-    });
-    const result = buildEnvVars(env);
-    expect(result.OPENCLAW_AI_GATEWAY_MODEL).toBe('workers-ai/@cf/moonshotai/kimi-k2.6');
-  });
-
   it('passes CF_AI_GATEWAY_MODEL to container', () => {
     const env = createMockEnv({
       CF_AI_GATEWAY_MODEL: 'workers-ai/@cf/moonshotai/kimi-k2.6',

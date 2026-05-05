@@ -351,7 +351,7 @@ See `skills/cloudflare-browser/SKILL.md` for full documentation.
 
 You can route API requests through [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) for caching, rate limiting, analytics, and cost tracking. This fork defaults OpenClaw to Kimi K2.6 on Workers AI via Cloudflare AI Gateway.
 
-AI Gateway acts as a proxy between OpenClaw and your AI provider. For the default Workers AI model, requests are sent through `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat` using Cloudflare AI Gateway's OpenAI-compatible unified API. Other providers such as Anthropic or OpenAI can still be used by changing `OPENCLAW_AI_GATEWAY_MODEL`.
+AI Gateway acts as a proxy between OpenClaw and your AI provider. For Workers AI models, requests are sent through `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/workers-ai/v1`. Other providers such as Anthropic or OpenAI can still be used by changing `CF_AI_GATEWAY_MODEL`.
 
 ### Setup
 
@@ -370,7 +370,7 @@ npx wrangler secret put CF_AI_GATEWAY_ACCOUNT_ID
 npx wrangler secret put CF_AI_GATEWAY_GATEWAY_ID
 ```
 
-All three are required. OpenClaw constructs the gateway URL from the account ID and gateway ID, then uses `OPENCLAW_AI_GATEWAY_MODEL` to select the provider and model.
+All three are required. OpenClaw constructs the gateway URL from the account ID and gateway ID, then uses `CF_AI_GATEWAY_MODEL` to select the provider and model.
 
 3. Redeploy:
 
@@ -385,14 +385,14 @@ When Cloudflare AI Gateway is configured, it takes precedence over direct `ANTHR
 By default, this fork uses Kimi K2.6 on Workers AI:
 
 ```bash
-OPENCLAW_AI_GATEWAY_MODEL=workers-ai/@cf/moonshotai/kimi-k2.6
+CF_AI_GATEWAY_MODEL=workers-ai/@cf/moonshotai/kimi-k2.6
 ```
 
-That default is set in `wrangler.jsonc` as `OPENCLAW_AI_GATEWAY_MODEL`, which takes precedence over older `CF_AI_GATEWAY_MODEL` secrets. To use a different model or provider, update `OPENCLAW_AI_GATEWAY_MODEL` with the format `provider/model-id`.
+That default is set in `wrangler.jsonc` as `CF_AI_GATEWAY_MODEL`. To use a different model or provider, update `CF_AI_GATEWAY_MODEL` with the format `provider/model-id`.
 
 This works with any [AI Gateway provider](https://developers.cloudflare.com/ai-gateway/usage/providers/):
 
-| Provider | Example `OPENCLAW_AI_GATEWAY_MODEL` value | API key is... |
+| Provider | Example `CF_AI_GATEWAY_MODEL` value | API key is... |
 |----------|-------------------------------------|---------------|
 | Workers AI | `workers-ai/@cf/moonshotai/kimi-k2.6` | Cloudflare AI Gateway token |
 | OpenAI | `openai/gpt-4o` | OpenAI API key |
@@ -416,8 +416,7 @@ The previous `AI_GATEWAY_API_KEY` + `AI_GATEWAY_BASE_URL` approach is still supp
 | `CLOUDFLARE_AI_GATEWAY_API_KEY` | Yes* | AI Gateway authentication token for Workers AI Unified Billing, or upstream provider key for third-party providers. Requires `CF_AI_GATEWAY_ACCOUNT_ID` and `CF_AI_GATEWAY_GATEWAY_ID` |
 | `CF_AI_GATEWAY_ACCOUNT_ID` | Yes* | Your Cloudflare account ID (used to construct the gateway URL) |
 | `CF_AI_GATEWAY_GATEWAY_ID` | Yes* | Your AI Gateway ID (used to construct the gateway URL) |
-| `OPENCLAW_AI_GATEWAY_MODEL` | No | Preferred model override: `provider/model-id` (defaults to `workers-ai/@cf/moonshotai/kimi-k2.6`). Takes precedence over `CF_AI_GATEWAY_MODEL`. See [Choosing a Model](#choosing-a-model) |
-| `CF_AI_GATEWAY_MODEL` | No | Legacy model override: `provider/model-id` (kept for backward compatibility). See [Choosing a Model](#choosing-a-model) |
+| `CF_AI_GATEWAY_MODEL` | No | Model override: `provider/model-id` (defaults to `workers-ai/@cf/moonshotai/kimi-k2.6`). See [Choosing a Model](#choosing-a-model) |
 | `ANTHROPIC_API_KEY` | Yes* | Direct Anthropic API key (alternative to AI Gateway) |
 | `ANTHROPIC_BASE_URL` | No | Direct Anthropic API base URL |
 | `OPENAI_API_KEY` | No | OpenAI API key (alternative provider) |
