@@ -76,9 +76,12 @@ export async function isGatewayModelConfigCurrent(sandbox: Sandbox): Promise<boo
     'const primary = config.agents?.defaults?.model?.primary;',
     'const allowed = config.agents?.defaults?.models || {};',
     'const providers = config.models?.providers || {};',
+    'const provider = providers[expectedProvider];',
+    'const model = Array.isArray(provider?.models) ? provider.models.find((entry) => entry?.id === "workers-ai/@cf/moonshotai/kimi-k2.6") : null;',
     'const serialized = JSON.stringify(config);',
     'const staleClaude = /cloudflare-ai-gateway\\/claude|claude-sonnet/i.test(serialized);',
-    'const ok = primary === expectedModel && Boolean(allowed[expectedModel]) && Boolean(providers[expectedProvider]) && !staleClaude;',
+    'const validModel = model?.api === "openai-completions" && typeof model?.reasoning === "boolean" && Boolean(model?.cost) && Number.isFinite(model?.contextWindow) && Number.isFinite(model?.maxTokens);',
+    'const ok = primary === expectedModel && Boolean(allowed[expectedModel]) && Boolean(provider) && validModel && !staleClaude;',
     'process.exit(ok ? 0 : 1);',
   ].join(' ');
   const result = await sandbox.exec(`node -e ${JSON.stringify(script)}`);

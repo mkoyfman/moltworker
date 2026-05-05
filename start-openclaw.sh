@@ -179,9 +179,17 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
                     {
                         id: selectedModelId,
                         name: isKimi26 ? 'Kimi K2.6 (Workers AI via Cloudflare AI Gateway)' : selectedModelId,
+                        api: 'openai-completions',
+                        reasoning: false,
                         contextWindow: isKimi26 ? 262144 : 131072,
                         maxTokens: isKimi26 ? 16384 : 8192,
                         input: ['text'],
+                        cost: {
+                            input: 0,
+                            output: 0,
+                            cacheRead: 0,
+                            cacheWrite: 0,
+                        },
                     },
                 ],
             };
