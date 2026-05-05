@@ -88,8 +88,23 @@ config.gateway.port = 18789;
 config.gateway.mode = 'local';
 config.gateway.trustedProxies = ['10.1.0.0'];
 
+const controlUiAllowedOrigins = new Set([
+    '*',
+    'http://localhost:18789',
+    'http://127.0.0.1:18789',
+]);
+if (process.env.WORKER_URL) {
+    try {
+        controlUiAllowedOrigins.add(new URL(process.env.WORKER_URL).origin);
+    } catch {
+        console.warn('WORKER_URL is not a valid URL; skipping Control UI origin seed');
+    }
+}
+
 config.gateway.controlUi = config.gateway.controlUi || {};
-config.gateway.controlUi.allowedOrigins = ['*'];
+config.gateway.controlUi.enabled = true;
+config.gateway.controlUi.allowedOrigins = Array.from(controlUiAllowedOrigins);
+config.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = true;
 
 if (process.env.OPENCLAW_GATEWAY_TOKEN) {
     config.gateway.auth = config.gateway.auth || {};
@@ -103,7 +118,7 @@ if (process.env.OPENCLAW_GATEWAY_TOKEN) {
 // origin (https://....workers.dev) doesn't match the gateway's localhost.
 // Security is handled by CF Access + gateway token auth, not origin checks.
 config.gateway.controlUi = config.gateway.controlUi || {};
-config.gateway.controlUi.allowedOrigins = ['*'];
+config.gateway.controlUi.allowedOrigins = Array.from(controlUiAllowedOrigins);
 
 if (process.env.OPENCLAW_DEV_MODE === 'true') {
     config.gateway.controlUi = config.gateway.controlUi || {};

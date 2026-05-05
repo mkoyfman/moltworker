@@ -59,6 +59,24 @@ function isGatewayCrashedError(error: unknown): boolean {
   return error.message.includes('is not listening');
 }
 
+/**
+ * The browser reaches OpenClaw through this Worker, but the gateway runs on
+ * localhost inside the container. Normalize browser origin headers on the
+ * Worker-to-container hop so OpenClaw's Control UI origin guard treats this as
+ * local gateway traffic; CF Access and gateway token auth still protect the
+ * public edge.
+ */
+function withGatewayLocalOrigin(request: Request): Request {
+  const headers = new Headers(request.headers);
+  const url = new URL(request.url);
+
+  headers.set('Origin', `http://localhost:${GATEWAY_PORT}`);
+  headers.set('X-Forwarded-Host', url.host);
+  headers.set('X-Forwarded-Proto', url.protocol.replace(':', ''));
+
+  return new Request(request, { headers });
+}
+
 // killGateway is imported from './gateway' (shared with restart handler)
 
 export { Sandbox };
@@ -324,6 +342,7 @@ app.all('*', async (c) => {
       tokenUrl.searchParams.set('token', c.env.MOLTBOT_GATEWAY_TOKEN);
       wsRequest = new Request(tokenUrl.toString(), request);
     }
+    wsRequest = withGatewayLocalOrigin(wsRequest);
 
     // Get WebSocket connection to the container (with retry on crash)
     let containerResponse: Response;
@@ -480,8 +499,9 @@ app.all('*', async (c) => {
   console.log('[HTTP] Proxying:', url.pathname + url.search);
 
   let httpResponse: Response;
+  const gatewayRequest = withGatewayLocalOrigin(request);
   try {
-    httpResponse = await sandbox.containerFetch(request, GATEWAY_PORT);
+    httpResponse = await sandbox.containerFetch(gatewayRequest, GATEWAY_PORT);
   } catch (err) {
     if (isGatewayCrashedError(err)) {
       console.log('[HTTP] Gateway crashed, attempting restore + restart and retry...');
@@ -493,7 +513,7 @@ app.all('*', async (c) => {
       }
       await ensureGateway(sandbox, c.env);
       try {
-        httpResponse = await sandbox.containerFetch(request, GATEWAY_PORT);
+        httpResponse = await sandbox.containerFetch(gatewayRequest, GATEWAY_PORT);
       } catch (retryErr) {
         console.error('[HTTP] Retry after restart also failed:', retryErr);
         if (acceptsHtml) return c.html(loadingPageHtml);
