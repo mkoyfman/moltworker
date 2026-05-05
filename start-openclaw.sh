@@ -196,7 +196,7 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
 
             config.agents = config.agents || {};
             config.agents.defaults = config.agents.defaults || {};
-            config.agents.defaults.model = { primary: selectedModelRef };
+            config.agents.defaults.model = { primary: selectedModelRef, fallbacks: [] };
 
             const allowedModels = { ...(config.agents.defaults.models || {}) };
             for (const key of Object.keys(allowedModels)) {
@@ -220,8 +220,8 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
                 for (const agent of config.agents.list) {
                     if (!agent || typeof agent !== 'object') continue;
                     const currentPrimary = typeof agent.model === 'string' ? agent.model : agent.model?.primary;
-                    if (isStaleClaudeModelRef(currentPrimary)) {
-                        agent.model = { primary: selectedModelRef };
+                    if (currentPrimary) {
+                        agent.model = { primary: selectedModelRef, fallbacks: [] };
                     }
                 }
             }
@@ -283,22 +283,25 @@ function rewriteStaleSessionModelSelections({ configDir, provider, model }) {
         let changed = false;
         for (const entry of Object.values(store)) {
             if (!entry || typeof entry !== 'object') continue;
+            const hasExplicitModelSelection =
+                typeof entry.providerOverride === 'string' ||
+                typeof entry.modelOverride === 'string' ||
+                typeof entry.modelProvider === 'string' ||
+                typeof entry.model === 'string';
             const stale =
                 isStaleClaudeModelRef(entry.providerOverride + '/' + entry.modelOverride) ||
                 isStaleClaudeModelRef(entry.modelProvider + '/' + entry.model) ||
                 isStaleClaudeModelRef(entry.modelOverride) ||
                 isStaleClaudeModelRef(entry.model);
-            if (!stale) continue;
+            if (!hasExplicitModelSelection && !stale) continue;
 
             entry.providerOverride = provider;
             entry.modelOverride = model;
-            entry.modelOverrideSource = 'system';
+            entry.modelOverrideSource = 'user';
             entry.modelProvider = provider;
             entry.model = model;
-            if (isStaleClaudeModelRef(entry.authProfileOverride || '')) {
-                delete entry.authProfileOverride;
-                delete entry.authProfileOverrideSource;
-            }
+            delete entry.authProfileOverride;
+            delete entry.authProfileOverrideSource;
             entry.liveModelSwitchPending = true;
             changed = true;
             rewrittenEntries++;

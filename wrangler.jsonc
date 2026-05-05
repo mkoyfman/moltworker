@@ -7,11 +7,6 @@
   "observability": {
     "enabled": true,
   },
-  "vars": {
-    // Default OpenClaw model when using Cloudflare AI Gateway.
-    // Format: provider/model-id. Can also be set as a secret in the Dashboard.
-    "CF_AI_GATEWAY_MODEL": "workers-ai/@cf/moonshotai/kimi-k2.6",
-  },
   // Static assets for admin UI (built by vite)
   "assets": {
     "directory": "./dist/client",
