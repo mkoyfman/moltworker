@@ -8,6 +8,10 @@ import type { OpenClawEnv } from '../types';
  */
 export function buildEnvVars(env: OpenClawEnv): Record<string, string> {
   const envVars: Record<string, string> = {};
+  const hasCloudflareAiGateway =
+    Boolean(env.CLOUDFLARE_AI_GATEWAY_API_KEY) &&
+    Boolean(env.CF_AI_GATEWAY_ACCOUNT_ID) &&
+    Boolean(env.CF_AI_GATEWAY_GATEWAY_ID);
 
   // Cloudflare AI Gateway configuration (new native provider)
   if (env.CLOUDFLARE_AI_GATEWAY_API_KEY) {
@@ -20,13 +24,17 @@ export function buildEnvVars(env: OpenClawEnv): Record<string, string> {
     envVars.CF_AI_GATEWAY_GATEWAY_ID = env.CF_AI_GATEWAY_GATEWAY_ID;
   }
 
-  // Direct provider keys
-  if (env.ANTHROPIC_API_KEY) envVars.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY;
-  if (env.OPENAI_API_KEY) envVars.OPENAI_API_KEY = env.OPENAI_API_KEY;
+  // Direct provider keys. When Cloudflare AI Gateway is fully configured, do
+  // not pass direct provider credentials into OpenClaw; otherwise restored
+  // auth/profile state can make Anthropic/OpenAI providers usable again.
+  if (!hasCloudflareAiGateway) {
+    if (env.ANTHROPIC_API_KEY) envVars.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY;
+    if (env.OPENAI_API_KEY) envVars.OPENAI_API_KEY = env.OPENAI_API_KEY;
+  }
 
   // Legacy AI Gateway support: AI_GATEWAY_BASE_URL + AI_GATEWAY_API_KEY
   // When set, these override direct keys for backward compatibility
-  if (env.AI_GATEWAY_API_KEY && env.AI_GATEWAY_BASE_URL) {
+  if (!hasCloudflareAiGateway && env.AI_GATEWAY_API_KEY && env.AI_GATEWAY_BASE_URL) {
     let normalizedBaseUrl = env.AI_GATEWAY_BASE_URL;
     while (normalizedBaseUrl.endsWith('/')) {
       normalizedBaseUrl = normalizedBaseUrl.slice(0, -1);
@@ -35,7 +43,7 @@ export function buildEnvVars(env: OpenClawEnv): Record<string, string> {
     // Legacy path routes through Anthropic base URL
     envVars.ANTHROPIC_BASE_URL = normalizedBaseUrl;
     envVars.ANTHROPIC_API_KEY = env.AI_GATEWAY_API_KEY;
-  } else if (env.ANTHROPIC_BASE_URL) {
+  } else if (!hasCloudflareAiGateway && env.ANTHROPIC_BASE_URL) {
     envVars.ANTHROPIC_BASE_URL = env.ANTHROPIC_BASE_URL;
   }
 

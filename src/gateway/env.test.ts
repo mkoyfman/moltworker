@@ -34,7 +34,7 @@ describe('buildEnvVars', () => {
     expect(result.CF_AI_GATEWAY_GATEWAY_ID).toBe('my-gateway-id');
   });
 
-  it('passes Cloudflare AI Gateway alongside direct Anthropic key', () => {
+  it('does not pass direct Anthropic key when Cloudflare AI Gateway is configured', () => {
     const env = createMockEnv({
       CLOUDFLARE_AI_GATEWAY_API_KEY: 'cf-gw-key',
       CF_AI_GATEWAY_ACCOUNT_ID: 'my-account-id',
@@ -43,7 +43,23 @@ describe('buildEnvVars', () => {
     });
     const result = buildEnvVars(env);
     expect(result.CLOUDFLARE_AI_GATEWAY_API_KEY).toBe('cf-gw-key');
-    expect(result.ANTHROPIC_API_KEY).toBe('sk-anthro');
+    expect(result.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it('does not pass legacy Anthropic gateway env when Cloudflare AI Gateway is configured', () => {
+    const env = createMockEnv({
+      CLOUDFLARE_AI_GATEWAY_API_KEY: 'cf-gw-key',
+      CF_AI_GATEWAY_ACCOUNT_ID: 'my-account-id',
+      CF_AI_GATEWAY_GATEWAY_ID: 'my-gateway-id',
+      AI_GATEWAY_API_KEY: 'legacy-key',
+      AI_GATEWAY_BASE_URL: 'https://gateway.example.com/anthropic',
+      ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+    });
+    const result = buildEnvVars(env);
+    expect(result.CLOUDFLARE_AI_GATEWAY_API_KEY).toBe('cf-gw-key');
+    expect(result.AI_GATEWAY_BASE_URL).toBeUndefined();
+    expect(result.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(result.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
   // Legacy AI Gateway support

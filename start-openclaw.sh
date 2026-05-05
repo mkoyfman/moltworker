@@ -73,6 +73,7 @@ const path = require('path');
 
 const configPath = '/root/.openclaw/openclaw.json';
 const DEFAULT_CF_AI_GATEWAY_MODEL = 'workers-ai/@cf/moonshotai/kimi-k2.6';
+const MODEL_PATCH_VERSION = 2;
 
 console.log('Patching config at:', configPath);
 let config = {};
@@ -166,12 +167,7 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
         if (baseUrl && apiKey) {
             const isKimi26 = raw === DEFAULT_CF_AI_GATEWAY_MODEL;
             const api = gwProvider === 'anthropic' ? 'anthropic-messages' : 'openai-completions';
-
-            config.models = config.models || {};
-            config.models.providers = config.models.providers || {};
-            delete config.models.providers['cloudflare-ai-gateway'];
-            delete config.models.providers['cloudflare-ai-gateway-workers-ai'];
-            config.models.providers[selectedProviderName] = {
+            const selectedProviderConfig = {
                 baseUrl: baseUrl,
                 apiKey: apiKey,
                 api: api,
@@ -194,27 +190,21 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
                 ],
             };
 
+            config.models = config.models || {};
+            config.models.mode = 'replace';
+            config.models.providers = {
+                [selectedProviderName]: selectedProviderConfig,
+            };
+
             config.agents = config.agents || {};
             config.agents.defaults = config.agents.defaults || {};
             config.agents.defaults.model = { primary: selectedModelRef, fallbacks: [] };
 
-            const allowedModels = { ...(config.agents.defaults.models || {}) };
-            for (const key of Object.keys(allowedModels)) {
-                const normalized = key.toLowerCase();
-                if (
-                    normalized.includes('claude') ||
-                    normalized.startsWith('cloudflare-ai-gateway/') ||
-                    normalized.startsWith('cf-ai-gw-workers-ai/') ||
-                    normalized.startsWith('cloudflare-ai-gateway-workers-ai/')
-                ) {
-                    delete allowedModels[key];
-                }
-            }
-            allowedModels[selectedModelRef] = {
-                ...(allowedModels[selectedModelRef] || {}),
-                alias: isKimi26 ? 'Kimi K2.6' : selectedModelId,
+            config.agents.defaults.models = {
+                [selectedModelRef]: {
+                    alias: isKimi26 ? 'Kimi K2.6' : selectedModelId,
+                },
             };
-            config.agents.defaults.models = allowedModels;
 
             if (Array.isArray(config.agents.list)) {
                 for (const agent of config.agents.list) {
@@ -225,6 +215,21 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
                     }
                 }
             }
+
+            config.moltworker = {
+                ...(config.moltworker && typeof config.moltworker === 'object' ? config.moltworker : {}),
+                aiGatewayModelPatchVersion: MODEL_PATCH_VERSION,
+                selectedModelRef,
+                selectedProviderName,
+                selectedModelId,
+            };
+
+            rewriteAgentModelsJson({
+                configDir: path.dirname(configPath),
+                config,
+                provider: selectedProviderName,
+                providerConfig: selectedProviderConfig,
+            });
 
             rewriteStaleSessionModelSelections({
                 configDir: path.dirname(configPath),
@@ -237,6 +242,75 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
             console.warn('AI Gateway model selected but missing required config (account ID, gateway ID, or API key)');
         }
     }
+}
+
+function rewriteAgentModelsJson({ configDir, config, provider, providerConfig }) {
+    const agentDirs = new Set();
+    const agentsRoot = path.join(configDir, 'agents');
+    agentDirs.add(path.join(agentsRoot, 'main', 'agent'));
+
+    if (Array.isArray(config.agents?.list)) {
+        for (const agent of config.agents.list) {
+            if (!agent || typeof agent !== 'object') continue;
+            const id = normalizeAgentId(agent.id);
+            if (id) agentDirs.add(path.join(agentsRoot, id, 'agent'));
+            const configuredAgentDir = resolveConfigPath(configDir, agent.agentDir);
+            if (configuredAgentDir) agentDirs.add(configuredAgentDir);
+        }
+    }
+
+    for (const existingModelsJson of findFilesNamed(agentsRoot, 'models.json')) {
+        agentDirs.add(path.dirname(existingModelsJson));
+    }
+
+    const contents = JSON.stringify({ providers: { [provider]: providerConfig } }, null, 2) + '\n';
+    let rewritten = 0;
+    for (const agentDir of agentDirs) {
+        try {
+            fs.mkdirSync(agentDir, { recursive: true });
+            fs.writeFileSync(path.join(agentDir, 'models.json'), contents, { mode: 0o600 });
+            rewritten++;
+        } catch (err) {
+            console.warn('Could not rewrite agent models.json in ' + agentDir + ': ' + String(err));
+        }
+    }
+    console.log('Rewrote OpenClaw models.json for ' + rewritten + ' agent dirs with provider=' + provider);
+}
+
+function findFilesNamed(root, fileName) {
+    const matches = [];
+    if (!fs.existsSync(root)) return matches;
+    const visit = (dir) => {
+        let entries;
+        try {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+            return;
+        }
+        for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                visit(fullPath);
+            } else if (entry.isFile() && entry.name === fileName) {
+                matches.push(fullPath);
+            }
+        }
+    };
+    visit(root);
+    return matches;
+}
+
+function normalizeAgentId(value) {
+    if (typeof value !== 'string') return '';
+    return value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'main';
+}
+
+function resolveConfigPath(configDir, value) {
+    if (typeof value !== 'string' || !value.trim()) return '';
+    const raw = value.trim();
+    if (raw.startsWith('~/')) return path.join(process.env.HOME || '/home/openclaw', raw.slice(2));
+    if (path.isAbsolute(raw)) return raw;
+    return path.join(configDir, raw);
 }
 
 function isStaleClaudeModelRef(value) {
@@ -292,7 +366,9 @@ function rewriteStaleSessionModelSelections({ configDir, provider, model }) {
                 isStaleClaudeModelRef(entry.providerOverride + '/' + entry.modelOverride) ||
                 isStaleClaudeModelRef(entry.modelProvider + '/' + entry.model) ||
                 isStaleClaudeModelRef(entry.modelOverride) ||
-                isStaleClaudeModelRef(entry.model);
+                isStaleClaudeModelRef(entry.model) ||
+                isStaleClaudeModelRef(entry.fallbackNoticeSelectedModel) ||
+                isStaleClaudeModelRef(entry.fallbackNoticeActiveModel);
             if (!hasExplicitModelSelection && !stale) continue;
 
             entry.providerOverride = provider;
@@ -302,6 +378,16 @@ function rewriteStaleSessionModelSelections({ configDir, provider, model }) {
             entry.model = model;
             delete entry.authProfileOverride;
             delete entry.authProfileOverrideSource;
+            delete entry.fallbackNoticeSelectedModel;
+            delete entry.fallbackNoticeActiveModel;
+            delete entry.fallbackNoticeReason;
+            delete entry.claudeCliSessionId;
+            if (entry.cliSessionIds && typeof entry.cliSessionIds === 'object') {
+                delete entry.cliSessionIds['claude-cli'];
+            }
+            if (entry.cliSessionBindings && typeof entry.cliSessionBindings === 'object') {
+                delete entry.cliSessionBindings['claude-cli'];
+            }
             entry.liveModelSwitchPending = true;
             changed = true;
             rewrittenEntries++;

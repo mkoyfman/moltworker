@@ -388,7 +388,7 @@ By default, this fork uses Kimi K2.6 on Workers AI:
 CF_AI_GATEWAY_MODEL=workers-ai/@cf/moonshotai/kimi-k2.6
 ```
 
-That default is set in `wrangler.jsonc` as `CF_AI_GATEWAY_MODEL`. To use a different model or provider, update `CF_AI_GATEWAY_MODEL` with the format `provider/model-id`.
+That default is built into the container startup script. To use a different model or provider, set `CF_AI_GATEWAY_MODEL` as a Worker secret or Dashboard secret with the format `provider/model-id`; do not add it as a plain `vars` entry in `wrangler.jsonc`.
 
 This works with any [AI Gateway provider](https://developers.cloudflare.com/ai-gateway/usage/providers/):
 
