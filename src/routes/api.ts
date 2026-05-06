@@ -12,6 +12,10 @@ import {
 // CLI commands can take 10-15 seconds to complete due to WebSocket connection overhead
 const CLI_TIMEOUT_MS = 20000;
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 /**
  * API routes
  * - /api/admin/* - Protected admin API routes (Cloudflare Access required)
@@ -495,6 +499,39 @@ console.log(JSON.stringify({
     } catch {
       state = { raw: stdout };
     }
+    const runOpenClawJson = async (command: string) => {
+      try {
+        const cliProc = await sandbox.startProcess(command);
+        await waitForProcess(cliProc, CLI_TIMEOUT_MS);
+        const cliLogs = await cliProc.getLogs();
+        const cliStdout = cliLogs.stdout || '';
+        let parsed: unknown = null;
+        try {
+          parsed = JSON.parse(cliStdout);
+        } catch {
+          parsed = { raw: cliStdout };
+        }
+        return {
+          exitCode: cliProc.exitCode,
+          stdout: parsed,
+          stderr: cliLogs.stderr || '',
+        };
+      } catch (err) {
+        return {
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    };
+    const openclawCli = {
+      modelsList: await runOpenClawJson('openclaw models list --json'),
+      modelsListAll: await runOpenClawJson('openclaw models list --all --json'),
+      modelsStatus: await runOpenClawJson('openclaw models status --json'),
+      gatewayModelsListConfigured: await runOpenClawJson(
+        `openclaw gateway call models.list --url ws://localhost:18789${
+          c.env.MOLTBOT_GATEWAY_TOKEN ? ` --token ${shellQuote(c.env.MOLTBOT_GATEWAY_TOKEN)}` : ''
+        } --json --params ${shellQuote(JSON.stringify({ view: 'configured' }))}`,
+      ),
+    };
     return c.json({
       env: {
         hasCloudflareAiGatewayApiKey: !!c.env.CLOUDFLARE_AI_GATEWAY_API_KEY,
@@ -508,6 +545,7 @@ console.log(JSON.stringify({
       state,
       stderr: logs.stderr || '',
       exitCode: proc.exitCode,
+      openclawCli,
       gatewayStartError,
     });
   } catch (error) {
