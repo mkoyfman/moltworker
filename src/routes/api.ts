@@ -306,6 +306,7 @@ adminApi.post('/gateway/restart', async (c) => {
     const existingProcess = await findExistingGatewayProcess(sandbox);
     console.log('[Restart] Killing gateway, existing process:', existingProcess?.id ?? 'none');
     await killGateway(sandbox);
+    await sandbox.destroy();
 
     // Signal that all Worker isolates need to re-restore from R2.
     // This writes a marker to R2 that restoreIfNeeded checks, ensuring
@@ -316,9 +317,154 @@ adminApi.post('/gateway/restart', async (c) => {
     return c.json({
       success: true,
       message: existingProcess
-        ? 'Gateway process killed, will restart on next request'
-        : 'No existing process found, will start on next request',
+        ? 'Gateway container destroyed, will restart on next request'
+        : 'Gateway container destroyed, will start on next request',
       previousProcessId: existingProcess?.id,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: errorMessage }, 500);
+  }
+});
+
+// GET /api/admin/gateway/model-state - Inspect sanitized OpenClaw model state
+adminApi.get('/gateway/model-state', async (c) => {
+  const sandbox = c.get('sandbox');
+  const script = `
+const fs = require('fs');
+const path = require('path');
+const configDir = '/root/.openclaw';
+
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function findFilesNamed(root, name) {
+  const out = [];
+  if (!fs.existsSync(root)) return out;
+  const visit = (dir) => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) visit(full);
+      else if (entry.isFile() && entry.name === name) out.push(full);
+    }
+  };
+  visit(root);
+  return out;
+}
+
+function summarizeProviders(providers) {
+  const out = {};
+  for (const [id, provider] of Object.entries(providers || {})) {
+    out[id] = {
+      baseUrl: typeof provider?.baseUrl === 'string' ? provider.baseUrl : null,
+      api: typeof provider?.api === 'string' ? provider.api : null,
+      hasApiKey: typeof provider?.apiKey === 'string' && provider.apiKey.length > 0,
+      models: Array.isArray(provider?.models)
+        ? provider.models.map((model) => ({
+            id: model?.id ?? null,
+            api: model?.api ?? null,
+            contextWindow: model?.contextWindow ?? null,
+            maxTokens: model?.maxTokens ?? null,
+          }))
+        : [],
+    };
+  }
+  return out;
+}
+
+function summarizeSessions(store) {
+  const out = {};
+  for (const [key, entry] of Object.entries(store || {})) {
+    out[key] = {
+      providerOverride: entry?.providerOverride,
+      modelOverride: entry?.modelOverride,
+      modelOverrideSource: entry?.modelOverrideSource,
+      modelProvider: entry?.modelProvider,
+      model: entry?.model,
+      authProfileOverride: entry?.authProfileOverride,
+      fallbackNoticeSelectedModel: entry?.fallbackNoticeSelectedModel,
+      fallbackNoticeActiveModel: entry?.fallbackNoticeActiveModel,
+      claudeCliSessionId: entry?.claudeCliSessionId ? '[present]' : undefined,
+      cliSessionIds: entry?.cliSessionIds ? Object.keys(entry.cliSessionIds) : undefined,
+      cliSessionBindings: entry?.cliSessionBindings ? Object.keys(entry.cliSessionBindings) : undefined,
+    };
+  }
+  return out;
+}
+
+function hasClaude(value) {
+  return /cloudflare-ai-gateway\\/claude|cloudflare-ai-gateway-workers-ai|claude-sonnet|anthropic\\/claude/i.test(JSON.stringify(value));
+}
+
+const config = readJson(path.join(configDir, 'openclaw.json'));
+const modelsJson = findFilesNamed(path.join(configDir, 'agents'), 'models.json').map((file) => {
+  const parsed = readJson(file);
+  return {
+    file,
+    providers: summarizeProviders(parsed?.providers),
+    hasClaude: hasClaude(parsed),
+  };
+});
+const sessions = findFilesNamed(path.join(configDir, 'agents'), 'sessions.json').map((file) => {
+  const parsed = readJson(file);
+  return {
+    file,
+    sessions: summarizeSessions(parsed),
+    hasClaude: hasClaude(parsed),
+  };
+});
+
+console.log(JSON.stringify({
+  openclawJson: {
+    exists: Boolean(config),
+    patchVersion: config?.moltworker?.aiGatewayModelPatchVersion ?? null,
+    selectedModelRef: config?.moltworker?.selectedModelRef ?? null,
+    modelsMode: config?.models?.mode ?? null,
+    defaultModel: config?.agents?.defaults?.model ?? null,
+    allowedModels: Object.keys(config?.agents?.defaults?.models || {}),
+    providers: summarizeProviders(config?.models?.providers),
+    hasClaude: hasClaude(config),
+  },
+  modelsJson,
+  sessions,
+}, null, 2));
+`;
+
+  try {
+    const proc = await sandbox.startProcess(`node -e ${JSON.stringify(script)}`);
+    await waitForProcess(proc, CLI_TIMEOUT_MS);
+    const logs = await proc.getLogs();
+    const stdout = logs.stdout || '';
+    let state: unknown = null;
+    try {
+      state = JSON.parse(stdout);
+    } catch {
+      state = { raw: stdout };
+    }
+    return c.json({
+      env: {
+        hasCloudflareAiGatewayApiKey: !!c.env.CLOUDFLARE_AI_GATEWAY_API_KEY,
+        hasCfAiGatewayAccountId: !!c.env.CF_AI_GATEWAY_ACCOUNT_ID,
+        hasCfAiGatewayGatewayId: !!c.env.CF_AI_GATEWAY_GATEWAY_ID,
+        cfAiGatewayModel: c.env.CF_AI_GATEWAY_MODEL || null,
+        hasAnthropicApiKey: !!c.env.ANTHROPIC_API_KEY,
+        hasOpenaiApiKey: !!c.env.OPENAI_API_KEY,
+        hasLegacyAiGateway: !!(c.env.AI_GATEWAY_API_KEY && c.env.AI_GATEWAY_BASE_URL),
+      },
+      state,
+      stderr: logs.stderr || '',
+      exitCode: proc.exitCode,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

@@ -100,6 +100,26 @@ export async function isGatewayModelConfigCurrent(sandbox: Sandbox): Promise<boo
   return result.exitCode === 0;
 }
 
+async function replaceStaleGatewayContainer(
+  sandbox: Sandbox,
+  process: Process | null,
+): Promise<void> {
+  console.log('Replacing stale gateway container so the latest image startup script runs...');
+  if (process) {
+    try {
+      await process.kill();
+    } catch (killError) {
+      console.log('Failed to kill stale gateway process before container destroy:', killError);
+    }
+  }
+  await killGateway(sandbox);
+  try {
+    await sandbox.destroy();
+  } catch (destroyError) {
+    console.log('Failed to destroy stale gateway container after killing process:', destroyError);
+  }
+}
+
 /**
  * Find an existing OpenClaw gateway process
  *
@@ -167,13 +187,8 @@ export async function ensureGateway(
         if (await isGatewayPortOpen(sandbox)) {
           const configCurrent = await isGatewayModelConfigCurrent(sandbox);
           if (!configCurrent) {
-            console.log('Existing gateway model config is stale, killing and restarting...');
-            try {
-              await existingProcess.kill();
-            } catch (killError) {
-              console.log('Failed to kill stale gateway process:', killError);
-            }
-            await killGateway(sandbox);
+            console.log('Existing gateway model config is stale, replacing container...');
+            await replaceStaleGatewayContainer(sandbox, existingProcess);
             return ensureGateway(sandbox, env, options);
           }
         } else {
@@ -225,8 +240,8 @@ export async function ensureGateway(
       try {
         const configCurrent = await isGatewayModelConfigCurrent(sandbox);
         if (!configCurrent) {
-          console.log('Undetected gateway has stale model config, killing and restarting...');
-          await killGateway(sandbox);
+          console.log('Undetected gateway has stale model config, replacing container...');
+          await replaceStaleGatewayContainer(sandbox, null);
           return ensureGateway(sandbox, env, options);
         }
       } catch (e) {
