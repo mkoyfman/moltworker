@@ -71,6 +71,19 @@ describe('findExistingGatewayProcess', () => {
     expect(result).toBe(gatewayProcess);
   });
 
+  it('returns gateway process when OpenClaw has forked into the gateway child', async () => {
+    const gatewayProcess = createFullMockProcess({
+      id: 'gateway-1',
+      command: 'openclaw-gateway --port 18789',
+      status: 'running',
+    });
+    const { sandbox, listProcessesMock } = createMockSandbox();
+    listProcessesMock.mockResolvedValue([gatewayProcess]);
+
+    const result = await findExistingGatewayProcess(sandbox);
+    expect(result).toBe(gatewayProcess);
+  });
+
   it('matches bash-invoked startup script with full path', async () => {
     const gatewayProcess = createFullMockProcess({
       id: 'gateway-1',

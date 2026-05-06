@@ -12,7 +12,7 @@
 
 set -e
 
-if pgrep -f "openclaw gateway" > /dev/null 2>&1; then
+if pgrep -f "openclaw gateway|openclaw-gateway" > /dev/null 2>&1; then
     echo "OpenClaw gateway is already running, exiting."
     exit 0
 fi

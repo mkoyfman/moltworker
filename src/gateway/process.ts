@@ -9,6 +9,14 @@ const EXPECTED_PROVIDER_ID = 'cf-ai-gw-workers-ai';
 const EXPECTED_MODEL_PATCH_VERSION = 3;
 const CURRENT_START_SCRIPT_PATH = '/tmp/moltworker-start-openclaw-current.sh';
 
+export function isProcessNotFoundError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === 'ProcessNotFoundError' ||
+    /Process(?:NotFoundError| proc_.* not found)/.test(error.message)
+  );
+}
+
 /**
  * Force kill the gateway process and clean up lock files.
  *
@@ -144,8 +152,10 @@ export async function findExistingGatewayProcess(sandbox: Sandbox): Promise<Proc
       // Don't match CLI commands like "openclaw devices list"
       const isGatewayProcess =
         proc.command.includes('start-openclaw.sh') ||
+        proc.command.includes('moltworker-start-openclaw-current.sh') ||
         proc.command.includes('/usr/local/bin/start-openclaw.sh') ||
         proc.command.includes('openclaw gateway') ||
+        proc.command.includes('openclaw-gateway') ||
         // Legacy: match old startup script during transition
         proc.command.includes('start-moltbot.sh') ||
         proc.command.includes('clawdbot gateway');
@@ -230,8 +240,11 @@ export async function ensureGateway(
       await existingProcess.waitForPort(GATEWAY_PORT, { mode: 'tcp', timeout: STARTUP_TIMEOUT_MS });
       console.log('Gateway is reachable');
       return existingProcess;
-      // eslint-disable-next-line no-unused-vars
-    } catch (_e) {
+    } catch (e) {
+      if (isProcessNotFoundError(e) && (await isGatewayPortOpen(sandbox))) {
+        console.log('Existing process handle disappeared, but gateway port is open');
+        return null;
+      }
       // Timeout waiting for port - process is likely dead or stuck, kill and restart
       console.log('Existing process not reachable after full timeout, killing and restarting...');
       try {
@@ -293,10 +306,19 @@ export async function ensureGateway(
       await process.waitForPort(GATEWAY_PORT, { mode: 'tcp', timeout: STARTUP_TIMEOUT_MS });
       console.log('[Gateway] OpenClaw gateway is ready!');
 
-      const logs = await process.getLogs();
-      if (logs.stdout) console.log('[Gateway] stdout:', logs.stdout);
-      if (logs.stderr) console.log('[Gateway] stderr:', logs.stderr);
+      try {
+        const logs = await process.getLogs();
+        if (logs.stdout) console.log('[Gateway] stdout:', logs.stdout);
+        if (logs.stderr) console.log('[Gateway] stderr:', logs.stderr);
+      } catch (logErr) {
+        if (!isProcessNotFoundError(logErr)) throw logErr;
+        console.log('[Gateway] Process handle disappeared after port became ready');
+      }
     } catch (e) {
+      if (isProcessNotFoundError(e) && (await isGatewayPortOpen(sandbox))) {
+        console.log('[Gateway] Process handle disappeared, but gateway port is ready');
+        return null;
+      }
       console.error('[Gateway] waitForPort failed:', e);
       try {
         const logs = await process.getLogs();

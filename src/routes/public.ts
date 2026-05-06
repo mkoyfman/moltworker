@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import { GATEWAY_PORT } from '../config';
-import { ensureGateway, findExistingGatewayProcess } from '../gateway';
+import { ensureGateway, findExistingGatewayProcess, isProcessNotFoundError } from '../gateway';
 import { restoreIfNeeded } from '../persistence';
 
 async function getProcessDiagnostics(
@@ -17,8 +17,19 @@ async function getProcessDiagnostics(
   if (waitMs > 0) {
     await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
-  const status = process.getStatus ? await process.getStatus() : process.status;
-  const logs = process.getLogs ? await process.getLogs() : { stdout: '', stderr: '' };
+  let status = process.status;
+  let logs: { stdout?: string; stderr?: string } = { stdout: '', stderr: '' };
+  try {
+    status = process.getStatus ? await process.getStatus() : process.status;
+  } catch (err) {
+    if (!isProcessNotFoundError(err)) throw err;
+    status = 'not_found';
+  }
+  try {
+    logs = process.getLogs ? await process.getLogs() : logs;
+  } catch (err) {
+    if (!isProcessNotFoundError(err)) throw err;
+  }
   return {
     processId: process.id,
     processStatus: status,
@@ -85,6 +96,18 @@ publicRoutes.get('/api/status', async (c) => {
         const started = await ensureGateway(sandbox, c.env, { waitForReady: false });
         if (started) {
           const diagnostics = await getProcessDiagnostics(started, 3000);
+          if (diagnostics.processStatus === 'not_found') {
+            const refreshed = await findExistingGatewayProcess(sandbox);
+            if (refreshed) {
+              return c.json({
+                ok: false,
+                status: 'starting',
+                restoreError,
+                processId: refreshed.id,
+                processStatus: refreshed.status,
+              });
+            }
+          }
           if (diagnostics.processStatus !== 'running' && diagnostics.processStatus !== 'starting') {
             console.error('[api/status] Gateway exited during startup:', diagnostics);
             return c.json({
@@ -123,7 +146,19 @@ publicRoutes.get('/api/status', async (c) => {
     try {
       await process.waitForPort(18789, { mode: 'tcp', timeout: 5000 });
       return c.json({ ok: true, status: 'running', processId: process.id });
-    } catch {
+    } catch (err) {
+      if (isProcessNotFoundError(err)) {
+        console.log('[api/status] Process handle disappeared; rechecking process list');
+        const refreshed = await findExistingGatewayProcess(sandbox);
+        if (refreshed) {
+          return c.json({
+            ok: false,
+            status: 'starting',
+            processId: refreshed.id,
+            processStatus: refreshed.status,
+          });
+        }
+      }
       const diagnostics = await getProcessDiagnostics(process);
       if (diagnostics.processStatus !== 'running' && diagnostics.processStatus !== 'starting') {
         return c.json({
