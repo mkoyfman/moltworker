@@ -6,7 +6,7 @@ import startOpenClawScript from '../../start-openclaw.sh?raw';
 
 const EXPECTED_MODEL_REF = 'cf-ai-gw-workers-ai/@cf/moonshotai/kimi-k2.6';
 const EXPECTED_PROVIDER_ID = 'cf-ai-gw-workers-ai';
-const EXPECTED_MODEL_PATCH_VERSION = 2;
+const EXPECTED_MODEL_PATCH_VERSION = 3;
 const CURRENT_START_SCRIPT_PATH = '/tmp/moltworker-start-openclaw-current.sh';
 
 /**
@@ -92,10 +92,12 @@ export async function isGatewayModelConfigCurrent(sandbox: Sandbox): Promise<boo
     'if (!modelsJsonPaths.includes(mainModelsJsonPath) && fs.existsSync(mainModelsJsonPath)) modelsJsonPaths.push(mainModelsJsonPath);',
     'const modelsJsonCurrent = modelsJsonPaths.length > 0 && modelsJsonPaths.every((file) => { const parsed = readJson(file); const p = parsed?.providers?.[expectedProvider]; const m = Array.isArray(p?.models) ? p.models.find((entry) => entry?.id === "@cf/moonshotai/kimi-k2.6") : null; return p?.baseUrl?.includes("/workers-ai/v1") && p?.api === "openai-completions" && Boolean(m); });',
     'const sessionStores = findFilesNamed(path.join(configDir, "agents"), "sessions.json").map(readJson).filter(Boolean);',
+    'const authStores = findFilesNamed(path.join(configDir, "agents"), "auth-profiles.json").map(readJson).filter(Boolean);',
+    'const staleBundledGatewayAuth = Object.values(config.auth?.profiles || {}).some((profile) => String(profile?.provider || "").trim().toLowerCase() === "cloudflare-ai-gateway") || authStores.some((store) => Object.values(store?.profiles || {}).some((profile) => String(profile?.provider || "").trim().toLowerCase() === "cloudflare-ai-gateway"));',
     'const staleClaude = hasStaleClaude(config) || modelsJsonPaths.map(readJson).filter(Boolean).some(hasStaleClaude) || sessionStores.some(hasStaleClaude);',
     'const patchCurrent = config.moltworker?.aiGatewayModelPatchVersion === expectedPatchVersion && config.moltworker?.selectedModelRef === expectedModel;',
     'const validModel = model?.api === "openai-completions" && typeof model?.reasoning === "boolean" && Boolean(model?.cost) && Number.isFinite(model?.contextWindow) && Number.isFinite(model?.maxTokens);',
-    'const ok = patchCurrent && primary === expectedModel && Boolean(allowed[expectedModel]) && Boolean(provider) && validModel && modelsJsonCurrent && !staleClaude;',
+    'const ok = patchCurrent && primary === expectedModel && Boolean(allowed[expectedModel]) && Boolean(provider) && validModel && modelsJsonCurrent && !staleClaude && !staleBundledGatewayAuth;',
     'process.exit(ok ? 0 : 1);',
   ].join(' ');
   const result = await sandbox.exec(`node -e ${JSON.stringify(script)}`);

@@ -73,7 +73,7 @@ const path = require('path');
 
 const configPath = '/root/.openclaw/openclaw.json';
 const DEFAULT_CF_AI_GATEWAY_MODEL = 'workers-ai/@cf/moonshotai/kimi-k2.6';
-const MODEL_PATCH_VERSION = 2;
+const MODEL_PATCH_VERSION = 3;
 
 console.log('Patching config at:', configPath);
 let config = {};
@@ -231,6 +231,11 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
                 providerConfig: selectedProviderConfig,
             });
 
+            scrubBundledCloudflareAnthropicGatewayState({
+                configDir: path.dirname(configPath),
+                config,
+            });
+
             rewriteStaleSessionModelSelections({
                 configDir: path.dirname(configPath),
                 provider: selectedProviderName,
@@ -277,6 +282,102 @@ function rewriteAgentModelsJson({ configDir, config, provider, providerConfig })
     console.log('Rewrote OpenClaw models.json for ' + rewritten + ' agent dirs with provider=' + provider);
 }
 
+function scrubBundledCloudflareAnthropicGatewayState({ configDir, config }) {
+    // OpenClaw's bundled "cloudflare-ai-gateway" provider is Anthropic-only
+    // and defaults to Claude. Moltworker uses a custom Workers AI provider
+    // entry instead, so remove the bundled provider/auth profile state that
+    // onboarding may have persisted before this patch runs.
+    if (config.models?.providers && typeof config.models.providers === 'object') {
+        delete config.models.providers['cloudflare-ai-gateway'];
+        delete config.models.providers['cloudflare-ai-gateway-workers-ai'];
+    }
+
+    if (config.agents?.defaults?.models && typeof config.agents.defaults.models === 'object') {
+        for (const key of Object.keys(config.agents.defaults.models)) {
+            const normalized = key.trim().toLowerCase();
+            if (
+                normalized.startsWith('cloudflare-ai-gateway/') ||
+                normalized.startsWith('cloudflare-ai-gateway-workers-ai/')
+            ) {
+                delete config.agents.defaults.models[key];
+            }
+        }
+    }
+
+    if (config.auth?.profiles && typeof config.auth.profiles === 'object') {
+        for (const [profileId, profile] of Object.entries(config.auth.profiles)) {
+            if (normalizeProviderName(profile?.provider) === 'cloudflare-ai-gateway') {
+                delete config.auth.profiles[profileId];
+            }
+        }
+    }
+
+    if (config.auth?.order && typeof config.auth.order === 'object') {
+        for (const providerId of Object.keys(config.auth.order)) {
+            if (normalizeProviderName(providerId) === 'cloudflare-ai-gateway') {
+                delete config.auth.order[providerId];
+            }
+        }
+    }
+
+    const agentAuthFiles = findFilesNamed(path.join(configDir, 'agents'), 'auth-profiles.json');
+    let authProfilesRewritten = 0;
+    for (const file of agentAuthFiles) {
+        let store;
+        try {
+            store = JSON.parse(fs.readFileSync(file, 'utf8'));
+        } catch {
+            continue;
+        }
+        if (!store?.profiles || typeof store.profiles !== 'object') continue;
+        let changed = false;
+        for (const [profileId, profile] of Object.entries(store.profiles)) {
+            if (normalizeProviderName(profile?.provider) === 'cloudflare-ai-gateway') {
+                delete store.profiles[profileId];
+                changed = true;
+            }
+        }
+        if (changed) {
+            fs.writeFileSync(file, JSON.stringify(store, null, 2) + '\n', { mode: 0o600 });
+            authProfilesRewritten++;
+        }
+    }
+
+    const authStateFiles = findFilesNamed(path.join(configDir, 'agents'), 'auth-state.json');
+    let authStateRewritten = 0;
+    for (const file of authStateFiles) {
+        let state;
+        try {
+            state = JSON.parse(fs.readFileSync(file, 'utf8'));
+        } catch {
+            continue;
+        }
+        let changed = false;
+        if (state?.usageStats && typeof state.usageStats === 'object') {
+            for (const key of Object.keys(state.usageStats)) {
+                if (normalizeProviderName(key.split(':')[0]) === 'cloudflare-ai-gateway') {
+                    delete state.usageStats[key];
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n', { mode: 0o600 });
+            authStateRewritten++;
+        }
+    }
+
+    if (authProfilesRewritten > 0 || authStateRewritten > 0) {
+        console.log(
+            'Removed bundled Cloudflare Anthropic Gateway auth state from ' +
+                authProfilesRewritten +
+                ' auth profile stores and ' +
+                authStateRewritten +
+                ' auth state stores'
+        );
+    }
+}
+
 function findFilesNamed(root, fileName) {
     const matches = [];
     if (!fs.existsSync(root)) return matches;
@@ -303,6 +404,10 @@ function findFilesNamed(root, fileName) {
 function normalizeAgentId(value) {
     if (typeof value !== 'string') return '';
     return value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'main';
+}
+
+function normalizeProviderName(value) {
+    return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
 function resolveConfigPath(configDir, value) {

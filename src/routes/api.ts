@@ -330,6 +330,14 @@ adminApi.post('/gateway/restart', async (c) => {
 // GET /api/admin/gateway/model-state - Inspect sanitized OpenClaw model state
 adminApi.get('/gateway/model-state', async (c) => {
   const sandbox = c.get('sandbox');
+  let gatewayStartError: string | null = null;
+  try {
+    await restoreThenEnsureGateway(sandbox, c.env);
+  } catch (err) {
+    gatewayStartError = err instanceof Error ? err.message : String(err);
+    console.error('[Model State] Gateway restore/start before inspection failed:', err);
+  }
+
   const script = `
 const fs = require('fs');
 const path = require('path');
@@ -404,7 +412,25 @@ function summarizeSessions(store) {
 }
 
 function hasClaude(value) {
-  return /cloudflare-ai-gateway\\/claude|cloudflare-ai-gateway-workers-ai|claude-sonnet|anthropic\\/claude/i.test(JSON.stringify(value));
+  return /cloudflare-ai-gateway\\/claude|claude-sonnet|anthropic\\/claude/i.test(JSON.stringify(value));
+}
+
+function hasStaleWorkersAiGatewayProvider(value) {
+  return /cloudflare-ai-gateway-workers-ai/i.test(JSON.stringify(value));
+}
+
+function summarizeAuthProfiles(store) {
+  const out = {};
+  for (const [profileId, profile] of Object.entries(store?.profiles || {})) {
+    out[profileId] = {
+      type: profile?.type ?? null,
+      provider: profile?.provider ?? null,
+      hasKey: typeof profile?.key === 'string' && profile.key.length > 0,
+      hasKeyRef: Boolean(profile?.keyRef),
+      metadataKeys: profile?.metadata && typeof profile.metadata === 'object' ? Object.keys(profile.metadata) : [],
+    };
+  }
+  return out;
 }
 
 const config = readJson(path.join(configDir, 'openclaw.json'));
@@ -414,6 +440,7 @@ const modelsJson = findFilesNamed(path.join(configDir, 'agents'), 'models.json')
     file,
     providers: summarizeProviders(parsed?.providers),
     hasClaude: hasClaude(parsed),
+    hasStaleWorkersAiGatewayProvider: hasStaleWorkersAiGatewayProvider(parsed),
   };
 });
 const sessions = findFilesNamed(path.join(configDir, 'agents'), 'sessions.json').map((file) => {
@@ -422,6 +449,16 @@ const sessions = findFilesNamed(path.join(configDir, 'agents'), 'sessions.json')
     file,
     sessions: summarizeSessions(parsed),
     hasClaude: hasClaude(parsed),
+    hasStaleWorkersAiGatewayProvider: hasStaleWorkersAiGatewayProvider(parsed),
+  };
+});
+const authProfiles = findFilesNamed(path.join(configDir, 'agents'), 'auth-profiles.json').map((file) => {
+  const parsed = readJson(file);
+  return {
+    file,
+    profiles: summarizeAuthProfiles(parsed),
+    hasClaude: hasClaude(parsed),
+    hasStaleWorkersAiGatewayProvider: hasStaleWorkersAiGatewayProvider(parsed),
   };
 });
 
@@ -434,10 +471,14 @@ console.log(JSON.stringify({
     defaultModel: config?.agents?.defaults?.model ?? null,
     allowedModels: Object.keys(config?.agents?.defaults?.models || {}),
     providers: summarizeProviders(config?.models?.providers),
+    authProfiles: summarizeAuthProfiles({ profiles: config?.auth?.profiles }),
+    authOrderProviders: Object.keys(config?.auth?.order || {}),
     hasClaude: hasClaude(config),
+    hasStaleWorkersAiGatewayProvider: hasStaleWorkersAiGatewayProvider(config),
   },
   modelsJson,
   sessions,
+  authProfiles,
 }, null, 2));
 `;
 
@@ -467,6 +508,7 @@ console.log(JSON.stringify({
       state,
       stderr: logs.stderr || '',
       exitCode: proc.exitCode,
+      gatewayStartError,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
