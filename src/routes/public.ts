@@ -1,13 +1,41 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import { GATEWAY_PORT } from '../config';
-import { ensureGateway, findExistingGatewayProcess, isProcessNotFoundError } from '../gateway';
+import {
+  ensureGateway,
+  findExistingGatewayProcess,
+  isProcessNotFoundError,
+  killGateway,
+} from '../gateway';
 import { restoreIfNeeded } from '../persistence';
+
+const STUCK_GATEWAY_RESTART_AFTER_MS = 45_000;
+
+function getProcessAgeMs(process: {
+  id: string;
+  startTime?: string | number | Date;
+}): number | null {
+  if (process.startTime) {
+    const startedAt =
+      process.startTime instanceof Date
+        ? process.startTime.getTime()
+        : typeof process.startTime === 'number'
+          ? process.startTime
+          : Date.parse(process.startTime);
+    if (Number.isFinite(startedAt)) return Math.max(0, Date.now() - startedAt);
+  }
+
+  const match = /^proc_(\d+)_/.exec(process.id);
+  if (!match) return null;
+  const startedAt = Number(match[1]);
+  return Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : null;
+}
 
 async function getProcessDiagnostics(
   process: {
     id: string;
     status: string;
+    startTime?: string | number | Date;
     exitCode?: number | null;
     getStatus?: () => Promise<string>;
     getLogs?: () => Promise<{ stdout?: string; stderr?: string }>;
@@ -33,6 +61,7 @@ async function getProcessDiagnostics(
   return {
     processId: process.id,
     processStatus: status,
+    processAgeMs: getProcessAgeMs(process),
     exitCode: process.exitCode ?? null,
     stdout: logs.stdout?.slice(-4000) ?? '',
     stderr: logs.stderr?.slice(-4000) ?? '',
@@ -168,11 +197,41 @@ publicRoutes.get('/api/status', async (c) => {
           diagnostics,
         });
       }
+      if (
+        diagnostics.processStatus === 'running' &&
+        diagnostics.processAgeMs !== null &&
+        diagnostics.processAgeMs > STUCK_GATEWAY_RESTART_AFTER_MS
+      ) {
+        console.error(
+          '[api/status] Gateway process is running but not listening; restarting:',
+          diagnostics,
+        );
+        let restoreError: string | null = null;
+        await killGateway(sandbox);
+        try {
+          await restoreIfNeeded(sandbox, c.env.BACKUP_BUCKET);
+        } catch (err) {
+          restoreError = err instanceof Error ? err.message : String(err);
+          console.error('[api/status] Restore after stuck gateway kill failed:', restoreError);
+        }
+        const restarted = await ensureGateway(sandbox, c.env, { waitForReady: false });
+        return c.json({
+          ok: false,
+          status: 'restarted',
+          reason: 'gateway process was running but not listening',
+          previousProcessId: process.id,
+          previousDiagnostics: diagnostics,
+          restoreError,
+          processId: restarted?.id ?? null,
+          processStatus: restarted?.status ?? null,
+        });
+      }
       return c.json({
         ok: false,
         status: 'not_responding',
         processId: process.id,
         processStatus: diagnostics.processStatus,
+        processAgeMs: diagnostics.processAgeMs,
       });
     }
   } catch (err) {
