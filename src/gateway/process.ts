@@ -2,10 +2,12 @@ import type { Sandbox, Process } from '@cloudflare/sandbox';
 import type { OpenClawEnv } from '../types';
 import { GATEWAY_PORT, STARTUP_TIMEOUT_MS } from '../config';
 import { buildEnvVars } from './env';
+import startOpenClawScript from '../../start-openclaw.sh?raw';
 
 const EXPECTED_MODEL_REF = 'cf-ai-gw-workers-ai/@cf/moonshotai/kimi-k2.6';
 const EXPECTED_PROVIDER_ID = 'cf-ai-gw-workers-ai';
 const EXPECTED_MODEL_PATCH_VERSION = 2;
+const CURRENT_START_SCRIPT_PATH = '/tmp/moltworker-start-openclaw-current.sh';
 
 /**
  * Force kill the gateway process and clean up lock files.
@@ -118,6 +120,12 @@ async function replaceStaleGatewayContainer(
   } catch (destroyError) {
     console.log('Failed to destroy stale gateway container after killing process:', destroyError);
   }
+}
+
+async function installCurrentStartScript(sandbox: Sandbox): Promise<string> {
+  await sandbox.writeFile(CURRENT_START_SCRIPT_PATH, startOpenClawScript);
+  await sandbox.exec(`chmod +x ${CURRENT_START_SCRIPT_PATH}`);
+  return CURRENT_START_SCRIPT_PATH;
 }
 
 /**
@@ -260,7 +268,7 @@ export async function ensureGateway(
   // Start a new OpenClaw gateway
   console.log('Starting new OpenClaw gateway...');
   const envVars = buildEnvVars(env);
-  const command = '/usr/local/bin/start-openclaw.sh';
+  const command = await installCurrentStartScript(sandbox);
 
   console.log('Starting process with command:', command);
   console.log('Environment vars being passed:', Object.keys(envVars));

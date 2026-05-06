@@ -442,7 +442,9 @@ console.log(JSON.stringify({
 `;
 
   try {
-    const proc = await sandbox.startProcess(`node -e ${JSON.stringify(script)}`);
+    const scriptPath = `/tmp/moltworker-model-state-${Date.now()}.js`;
+    await sandbox.writeFile(scriptPath, script);
+    const proc = await sandbox.startProcess(`node ${scriptPath}`);
     await waitForProcess(proc, CLI_TIMEOUT_MS);
     const logs = await proc.getLogs();
     const stdout = logs.stdout || '';
