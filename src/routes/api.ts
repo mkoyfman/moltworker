@@ -434,7 +434,7 @@ function summarizeAuthProfiles(store) {
 }
 
 const config = readJson(path.join(configDir, 'openclaw.json'));
-const modelsJson = findFilesNamed(path.join(configDir, 'agents'), 'models.json').map((file) => {
+const modelsJson = findFilesNamed(configDir, 'models.json').map((file) => {
   const parsed = readJson(file);
   return {
     file,
@@ -443,7 +443,7 @@ const modelsJson = findFilesNamed(path.join(configDir, 'agents'), 'models.json')
     hasStaleWorkersAiGatewayProvider: hasStaleWorkersAiGatewayProvider(parsed),
   };
 });
-const sessions = findFilesNamed(path.join(configDir, 'agents'), 'sessions.json').map((file) => {
+const sessions = findFilesNamed(configDir, 'sessions.json').map((file) => {
   const parsed = readJson(file);
   return {
     file,
@@ -452,7 +452,7 @@ const sessions = findFilesNamed(path.join(configDir, 'agents'), 'sessions.json')
     hasStaleWorkersAiGatewayProvider: hasStaleWorkersAiGatewayProvider(parsed),
   };
 });
-const authProfiles = findFilesNamed(path.join(configDir, 'agents'), 'auth-profiles.json').map((file) => {
+const authProfiles = findFilesNamed(configDir, 'auth-profiles.json').map((file) => {
   const parsed = readJson(file);
   return {
     file,

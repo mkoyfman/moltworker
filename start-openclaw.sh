@@ -38,7 +38,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     # exposing secrets in process arguments visible via ps/proc.
     AUTH_ARGS=""
     if [ -n "$CLOUDFLARE_AI_GATEWAY_API_KEY" ] && [ -n "$CF_AI_GATEWAY_ACCOUNT_ID" ] && [ -n "$CF_AI_GATEWAY_GATEWAY_ID" ]; then
-        AUTH_ARGS="--auth-choice cloudflare-ai-gateway-api-key --cloudflare-ai-gateway-account-id $CF_AI_GATEWAY_ACCOUNT_ID --cloudflare-ai-gateway-gateway-id $CF_AI_GATEWAY_GATEWAY_ID --cloudflare-ai-gateway-api-key $CLOUDFLARE_AI_GATEWAY_API_KEY"
+        echo "Cloudflare AI Gateway detected; custom Workers AI provider will be configured after onboard."
     elif [ -n "$ANTHROPIC_API_KEY" ]; then
         AUTH_ARGS="--auth-choice apiKey"
     elif [ -n "$OPENAI_API_KEY" ]; then
@@ -73,7 +73,7 @@ const path = require('path');
 
 const configPath = '/root/.openclaw/openclaw.json';
 const DEFAULT_CF_AI_GATEWAY_MODEL = 'workers-ai/@cf/moonshotai/kimi-k2.6';
-const MODEL_PATCH_VERSION = 3;
+const MODEL_PATCH_VERSION = 4;
 
 console.log('Patching config at:', configPath);
 let config = {};
@@ -264,7 +264,7 @@ function rewriteAgentModelsJson({ configDir, config, provider, providerConfig })
         }
     }
 
-    for (const existingModelsJson of findFilesNamed(agentsRoot, 'models.json')) {
+    for (const existingModelsJson of findFilesNamed(configDir, 'models.json')) {
         agentDirs.add(path.dirname(existingModelsJson));
     }
 
@@ -320,7 +320,7 @@ function scrubBundledCloudflareAnthropicGatewayState({ configDir, config }) {
         }
     }
 
-    const agentAuthFiles = findFilesNamed(path.join(configDir, 'agents'), 'auth-profiles.json');
+    const agentAuthFiles = findFilesNamed(configDir, 'auth-profiles.json');
     let authProfilesRewritten = 0;
     for (const file of agentAuthFiles) {
         let store;
@@ -343,7 +343,7 @@ function scrubBundledCloudflareAnthropicGatewayState({ configDir, config }) {
         }
     }
 
-    const authStateFiles = findFilesNamed(path.join(configDir, 'agents'), 'auth-state.json');
+    const authStateFiles = findFilesNamed(configDir, 'auth-state.json');
     let authStateRewritten = 0;
     for (const file of authStateFiles) {
         let state;
@@ -425,14 +425,12 @@ function isStaleClaudeModelRef(value) {
         normalized.includes('claude') ||
         normalized.startsWith('cloudflare-ai-gateway/') ||
         normalized.startsWith('cloudflare-ai-gateway:') ||
-        normalized.startsWith('cf-ai-gw-workers-ai/') ||
         normalized.startsWith('cloudflare-ai-gateway-workers-ai/')
     );
 }
 
 function rewriteStaleSessionModelSelections({ configDir, provider, model }) {
-    const agentsDir = path.join(configDir, 'agents');
-    if (!fs.existsSync(agentsDir)) return;
+    if (!fs.existsSync(configDir)) return;
 
     const sessionStorePaths = [];
     const visit = (dir) => {
@@ -445,7 +443,7 @@ function rewriteStaleSessionModelSelections({ configDir, provider, model }) {
             }
         }
     };
-    visit(agentsDir);
+    visit(configDir);
 
     let rewrittenStores = 0;
     let rewrittenEntries = 0;

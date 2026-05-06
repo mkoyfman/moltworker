@@ -6,7 +6,7 @@ import startOpenClawScript from '../../start-openclaw.sh?raw';
 
 const EXPECTED_MODEL_REF = 'cf-ai-gw-workers-ai/@cf/moonshotai/kimi-k2.6';
 const EXPECTED_PROVIDER_ID = 'cf-ai-gw-workers-ai';
-const EXPECTED_MODEL_PATCH_VERSION = 3;
+const EXPECTED_MODEL_PATCH_VERSION = 4;
 const CURRENT_START_SCRIPT_PATH = '/tmp/moltworker-start-openclaw-current.sh';
 
 export function isProcessNotFoundError(error: unknown): boolean {
@@ -95,12 +95,12 @@ export async function isGatewayModelConfigCurrent(sandbox: Sandbox): Promise<boo
     'function findFilesNamed(root, name) { const out = []; if (!fs.existsSync(root)) return out; const visit = (dir) => { for (const entry of fs.readdirSync(dir, { withFileTypes: true })) { const full = path.join(dir, entry.name); if (entry.isDirectory()) visit(full); else if (entry.isFile() && entry.name === name) out.push(full); } }; visit(root); return out; }',
     'function readJson(file) { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } }',
     'function hasStaleClaude(value) { return /cloudflare-ai-gateway\\/claude|cloudflare-ai-gateway-workers-ai|claude-sonnet|anthropic\\/claude/i.test(JSON.stringify(value)); }',
-    'const modelsJsonPaths = findFilesNamed(path.join(configDir, "agents"), "models.json");',
+    'const modelsJsonPaths = findFilesNamed(configDir, "models.json");',
     'const mainModelsJsonPath = path.join(configDir, "agents", "main", "agent", "models.json");',
     'if (!modelsJsonPaths.includes(mainModelsJsonPath) && fs.existsSync(mainModelsJsonPath)) modelsJsonPaths.push(mainModelsJsonPath);',
     'const modelsJsonCurrent = modelsJsonPaths.length > 0 && modelsJsonPaths.every((file) => { const parsed = readJson(file); const p = parsed?.providers?.[expectedProvider]; const m = Array.isArray(p?.models) ? p.models.find((entry) => entry?.id === "@cf/moonshotai/kimi-k2.6") : null; return p?.baseUrl?.includes("/workers-ai/v1") && p?.api === "openai-completions" && Boolean(m); });',
-    'const sessionStores = findFilesNamed(path.join(configDir, "agents"), "sessions.json").map(readJson).filter(Boolean);',
-    'const authStores = findFilesNamed(path.join(configDir, "agents"), "auth-profiles.json").map(readJson).filter(Boolean);',
+    'const sessionStores = findFilesNamed(configDir, "sessions.json").map(readJson).filter(Boolean);',
+    'const authStores = findFilesNamed(configDir, "auth-profiles.json").map(readJson).filter(Boolean);',
     'const staleBundledGatewayAuth = Object.values(config.auth?.profiles || {}).some((profile) => String(profile?.provider || "").trim().toLowerCase() === "cloudflare-ai-gateway") || authStores.some((store) => Object.values(store?.profiles || {}).some((profile) => String(profile?.provider || "").trim().toLowerCase() === "cloudflare-ai-gateway"));',
     'const staleClaude = hasStaleClaude(config) || modelsJsonPaths.map(readJson).filter(Boolean).some(hasStaleClaude) || sessionStores.some(hasStaleClaude);',
     'const patchCurrent = config.moltworker?.aiGatewayModelPatchVersion === expectedPatchVersion && config.moltworker?.selectedModelRef === expectedModel;',
