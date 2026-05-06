@@ -6,7 +6,7 @@ import startOpenClawScript from '../../start-openclaw.sh?raw';
 
 const EXPECTED_MODEL_REF = 'cf-ai-gw-workers-ai/@cf/moonshotai/kimi-k2.6';
 const EXPECTED_PROVIDER_ID = 'cf-ai-gw-workers-ai';
-const EXPECTED_MODEL_PATCH_VERSION = 4;
+const EXPECTED_MODEL_PATCH_VERSION = 5;
 const CURRENT_START_SCRIPT_PATH = '/tmp/moltworker-start-openclaw-current.sh';
 
 export function isProcessNotFoundError(error: unknown): boolean {

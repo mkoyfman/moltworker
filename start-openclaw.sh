@@ -38,7 +38,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     # exposing secrets in process arguments visible via ps/proc.
     AUTH_ARGS=""
     if [ -n "$CLOUDFLARE_AI_GATEWAY_API_KEY" ] && [ -n "$CF_AI_GATEWAY_ACCOUNT_ID" ] && [ -n "$CF_AI_GATEWAY_GATEWAY_ID" ]; then
-        echo "Cloudflare AI Gateway detected; custom Workers AI provider will be configured after onboard."
+        AUTH_ARGS="--auth-choice cloudflare-ai-gateway-api-key --cloudflare-ai-gateway-account-id $CF_AI_GATEWAY_ACCOUNT_ID --cloudflare-ai-gateway-gateway-id $CF_AI_GATEWAY_GATEWAY_ID"
     elif [ -n "$ANTHROPIC_API_KEY" ]; then
         AUTH_ARGS="--auth-choice apiKey"
     elif [ -n "$OPENAI_API_KEY" ]; then
@@ -73,7 +73,7 @@ const path = require('path');
 
 const configPath = '/root/.openclaw/openclaw.json';
 const DEFAULT_CF_AI_GATEWAY_MODEL = 'workers-ai/@cf/moonshotai/kimi-k2.6';
-const MODEL_PATCH_VERSION = 4;
+const MODEL_PATCH_VERSION = 5;
 
 console.log('Patching config at:', configPath);
 let config = {};
