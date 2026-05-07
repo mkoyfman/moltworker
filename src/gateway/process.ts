@@ -284,9 +284,34 @@ export async function ensureGateway(
       console.log('Waiting for gateway on port', GATEWAY_PORT, 'timeout:', STARTUP_TIMEOUT_MS);
       await existingProcess.waitForPort(GATEWAY_PORT, { mode: 'tcp', timeout: STARTUP_TIMEOUT_MS });
       console.log('Gateway is reachable');
+      const versionCurrent = await isOpenClawRuntimeVersionCurrent(sandbox);
+      if (!versionCurrent) {
+        console.log('Reachable gateway OpenClaw runtime is stale, replacing container...');
+        await replaceStaleGatewayContainer(sandbox, existingProcess);
+        return ensureGateway(sandbox, env, options);
+      }
+      const configCurrent = await isGatewayModelConfigCurrent(sandbox);
+      if (!configCurrent) {
+        console.log('Reachable gateway model config is stale, replacing container...');
+        await replaceStaleGatewayContainer(sandbox, existingProcess);
+        return ensureGateway(sandbox, env, options);
+      }
       return existingProcess;
     } catch (e) {
       if (isProcessNotFoundError(e) && (await isGatewayPortOpen(sandbox))) {
+        try {
+          const versionCurrent = await isOpenClawRuntimeVersionCurrent(sandbox);
+          const configCurrent = versionCurrent
+            ? await isGatewayModelConfigCurrent(sandbox)
+            : false;
+          if (!versionCurrent || !configCurrent) {
+            console.log('Existing process handle disappeared with stale gateway, replacing container...');
+            await replaceStaleGatewayContainer(sandbox, null);
+            return ensureGateway(sandbox, env, options);
+          }
+        } catch (verifyError) {
+          console.log('Could not verify disappeared process handle gateway, keeping open port:', verifyError);
+        }
         console.log('Existing process handle disappeared, but gateway port is open');
         return null;
       }

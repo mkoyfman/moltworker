@@ -528,6 +528,7 @@ console.log(JSON.stringify({
       }
     };
     const openclawCli = {
+      version: await runOpenClawJson('openclaw --version'),
       modelsList: await runOpenClawJson('openclaw models list --json'),
       modelsListAll: await runOpenClawJson('openclaw models list --all --json'),
       modelsStatus: await runOpenClawJson('openclaw models status --json'),
