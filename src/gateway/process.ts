@@ -6,7 +6,7 @@ import startOpenClawScript from '../../start-openclaw.sh?raw';
 
 const EXPECTED_MODEL_REF = 'cf-ai-gw-workers-ai/@cf/moonshotai/kimi-k2.6';
 const EXPECTED_PROVIDER_ID = 'cf-ai-gw-workers-ai';
-const EXPECTED_MODEL_PATCH_VERSION = 6;
+const EXPECTED_MODEL_PATCH_VERSION = 7;
 const EXPECTED_OPENCLAW_MIN_VERSION = '2026.5.6';
 const CURRENT_START_SCRIPT_PATH = '/tmp/moltworker-start-openclaw-current.sh';
 
@@ -121,6 +121,7 @@ export async function isGatewayModelConfigCurrent(sandbox: Sandbox): Promise<boo
     "const path = require('path');",
     "const configDir = '/home/openclaw/.openclaw';",
     "const config = JSON.parse(fs.readFileSync(path.join(configDir, 'openclaw.json'), 'utf8'));",
+    'const marker = readJson(path.join(configDir, "moltworker-state.json")) || {};',
     `const expectedModel = ${JSON.stringify(EXPECTED_MODEL_REF)};`,
     `const expectedProvider = ${JSON.stringify(EXPECTED_PROVIDER_ID)};`,
     `const expectedPatchVersion = ${EXPECTED_MODEL_PATCH_VERSION};`,
@@ -141,7 +142,7 @@ export async function isGatewayModelConfigCurrent(sandbox: Sandbox): Promise<boo
     'function isBundledGatewayProfile(profileId, profile) { const provider = String(profile?.provider || "").trim().toLowerCase(); const id = String(profileId || "").trim().toLowerCase(); return provider === "cloudflare-ai-gateway" || id.startsWith("cloudflare-ai-gateway:"); }',
     'const staleBundledGatewayAuth = Object.entries(config.auth?.profiles || {}).some(([profileId, profile]) => isBundledGatewayProfile(profileId, profile)) || authStores.some((store) => Object.entries(store?.profiles || {}).some(([profileId, profile]) => isBundledGatewayProfile(profileId, profile)));',
     'const staleClaude = hasStaleClaude(config) || modelsJsonPaths.map(readJson).filter(Boolean).some(hasStaleClaude) || sessionStores.some(hasStaleClaude);',
-    'const patchCurrent = config.moltworker?.aiGatewayModelPatchVersion === expectedPatchVersion && config.moltworker?.selectedModelRef === expectedModel;',
+    'const patchCurrent = marker.aiGatewayModelPatchVersion === expectedPatchVersion && marker.selectedModelRef === expectedModel && !Object.prototype.hasOwnProperty.call(config, "moltworker");',
     'const validModel = model?.api === "openai-completions" && typeof model?.reasoning === "boolean" && Boolean(model?.cost) && Number.isFinite(model?.contextWindow) && Number.isFinite(model?.maxTokens);',
     'const ok = patchCurrent && primary === expectedModel && Boolean(allowed[expectedModel]) && Boolean(provider) && validModel && modelsJsonCurrent && !staleClaude && !staleBundledGatewayAuth;',
     'process.exit(ok ? 0 : 1);',

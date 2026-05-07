@@ -79,8 +79,9 @@ const path = require('path');
 
 const configDir = process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/home/openclaw', '.openclaw');
 const configPath = process.env.OPENCLAW_CONFIG_PATH || path.join(configDir, 'openclaw.json');
+const moltworkerStatePath = path.join(configDir, 'moltworker-state.json');
 const DEFAULT_CF_AI_GATEWAY_MODEL = 'workers-ai/@cf/moonshotai/kimi-k2.6';
-const MODEL_PATCH_VERSION = 6;
+const MODEL_PATCH_VERSION = 7;
 
 console.log('Patching config at:', configPath);
 let config = {};
@@ -93,6 +94,7 @@ try {
 
 config.gateway = config.gateway || {};
 config.channels = config.channels || {};
+delete config.moltworker;
 
 // Gateway configuration
 config.gateway.port = 18789;
@@ -223,13 +225,12 @@ if (process.env.OPENCLAW_DEV_MODE === 'true') {
                 }
             }
 
-            config.moltworker = {
-                ...(config.moltworker && typeof config.moltworker === 'object' ? config.moltworker : {}),
+            fs.writeFileSync(moltworkerStatePath, JSON.stringify({
                 aiGatewayModelPatchVersion: MODEL_PATCH_VERSION,
                 selectedModelRef,
                 selectedProviderName,
                 selectedModelId,
-            };
+            }, null, 2) + '\n', { mode: 0o600 });
 
             rewriteAgentModelsJson({
                 configDir: path.dirname(configPath),

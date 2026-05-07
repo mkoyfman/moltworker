@@ -438,6 +438,7 @@ function summarizeAuthProfiles(store) {
 }
 
 const config = readJson(path.join(configDir, 'openclaw.json'));
+const moltworkerState = readJson(path.join(configDir, 'moltworker-state.json'));
 const modelsJson = findFilesNamed(configDir, 'models.json').map((file) => {
   const parsed = readJson(file);
   return {
@@ -469,8 +470,7 @@ const authProfiles = findFilesNamed(configDir, 'auth-profiles.json').map((file) 
 console.log(JSON.stringify({
   openclawJson: {
     exists: Boolean(config),
-    patchVersion: config?.moltworker?.aiGatewayModelPatchVersion ?? null,
-    selectedModelRef: config?.moltworker?.selectedModelRef ?? null,
+    hasMoltworkerRootKey: Object.prototype.hasOwnProperty.call(config || {}, 'moltworker'),
     modelsMode: config?.models?.mode ?? null,
     defaultModel: config?.agents?.defaults?.model ?? null,
     allowedModels: Object.keys(config?.agents?.defaults?.models || {}),
@@ -479,6 +479,11 @@ console.log(JSON.stringify({
     authOrderProviders: Object.keys(config?.auth?.order || {}),
     hasClaude: hasClaude(config),
     hasStaleWorkersAiGatewayProvider: hasStaleWorkersAiGatewayProvider(config),
+  },
+  moltworkerState: {
+    exists: Boolean(moltworkerState),
+    patchVersion: moltworkerState?.aiGatewayModelPatchVersion ?? null,
+    selectedModelRef: moltworkerState?.selectedModelRef ?? null,
   },
   modelsJson,
   sessions,
