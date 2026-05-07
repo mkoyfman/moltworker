@@ -209,10 +209,10 @@ describe('isGatewayModelConfigCurrent', () => {
 
     expect(result).toBe(true);
     expect(execMock).toHaveBeenCalledOnce();
-    expect(execMock.mock.calls[0][0]).toContain('/root/.openclaw/openclaw.json');
+    expect(execMock.mock.calls[0][0]).toContain('/home/openclaw/.openclaw');
     expect(execMock.mock.calls[0][0]).toContain('@cf/moonshotai/kimi-k2.6');
     expect(execMock.mock.calls[0][0]).toContain('cf-ai-gw-workers-ai');
-    expect(execMock.mock.calls[0][0]).toContain('expectedPatchVersion = 5');
+    expect(execMock.mock.calls[0][0]).toContain('expectedPatchVersion = 6');
     expect(execMock.mock.calls[0][0]).toContain(
       'findFilesNamed(configDir, \\"auth-profiles.json\\")',
     );

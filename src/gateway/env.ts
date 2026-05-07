@@ -7,7 +7,13 @@ import type { OpenClawEnv } from '../types';
  * @returns Environment variables record
  */
 export function buildEnvVars(env: OpenClawEnv): Record<string, string> {
-  const envVars: Record<string, string> = {};
+  const envVars: Record<string, string> = {
+    HOME: '/home/openclaw',
+    OPENCLAW_STATE_DIR: '/home/openclaw/.openclaw',
+    OPENCLAW_CONFIG_PATH: '/home/openclaw/.openclaw/openclaw.json',
+    OPENCLAW_AGENT_DIR: '/home/openclaw/.openclaw/agents/main/agent',
+    PI_CODING_AGENT_DIR: '/home/openclaw/.openclaw/agents/main/agent',
+  };
   const hasCloudflareAiGateway =
     Boolean(env.CLOUDFLARE_AI_GATEWAY_API_KEY) &&
     Boolean(env.CF_AI_GATEWAY_ACCOUNT_ID) &&

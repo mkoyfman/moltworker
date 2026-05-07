@@ -360,7 +360,7 @@ debug.get('/container-config', async (c) => {
   const sandbox = c.get('sandbox');
 
   try {
-    const proc = await sandbox.startProcess('cat /root/.openclaw/openclaw.json');
+    const proc = await sandbox.startProcess('cat /home/openclaw/.openclaw/openclaw.json');
     await waitForProcess(proc, 5000);
 
     const logs = await proc.getLogs();

@@ -17,14 +17,20 @@ if pgrep -f "openclaw gateway|openclaw-gateway" > /dev/null 2>&1; then
     exit 0
 fi
 
-CONFIG_DIR="/root/.openclaw"
-CONFIG_FILE="$CONFIG_DIR/openclaw.json"
-WORKSPACE_DIR="/root/clawd"
-SKILLS_DIR="/root/clawd/skills"
+HOME_DIR="${HOME:-/home/openclaw}"
+CONFIG_DIR="${OPENCLAW_STATE_DIR:-$HOME_DIR/.openclaw}"
+CONFIG_FILE="${OPENCLAW_CONFIG_PATH:-$CONFIG_DIR/openclaw.json}"
+WORKSPACE_DIR="$HOME_DIR/clawd"
+SKILLS_DIR="$WORKSPACE_DIR/skills"
+export HOME="$HOME_DIR"
+export OPENCLAW_STATE_DIR="$CONFIG_DIR"
+export OPENCLAW_CONFIG_PATH="$CONFIG_FILE"
+export OPENCLAW_AGENT_DIR="${OPENCLAW_AGENT_DIR:-$CONFIG_DIR/agents/main/agent}"
+export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$OPENCLAW_AGENT_DIR}"
 
 echo "Config directory: $CONFIG_DIR"
 
-mkdir -p "$CONFIG_DIR"
+mkdir -p "$CONFIG_DIR" "$OPENCLAW_AGENT_DIR" "$WORKSPACE_DIR" "$SKILLS_DIR"
 
 # ============================================================
 # ONBOARD (only if no config exists yet)
@@ -71,9 +77,10 @@ node << 'EOFPATCH'
 const fs = require('fs');
 const path = require('path');
 
-const configPath = '/root/.openclaw/openclaw.json';
+const configDir = process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/home/openclaw', '.openclaw');
+const configPath = process.env.OPENCLAW_CONFIG_PATH || path.join(configDir, 'openclaw.json');
 const DEFAULT_CF_AI_GATEWAY_MODEL = 'workers-ai/@cf/moonshotai/kimi-k2.6';
-const MODEL_PATCH_VERSION = 5;
+const MODEL_PATCH_VERSION = 6;
 
 console.log('Patching config at:', configPath);
 let config = {};
@@ -306,7 +313,7 @@ function scrubBundledCloudflareAnthropicGatewayState({ configDir, config }) {
 
     if (config.auth?.profiles && typeof config.auth.profiles === 'object') {
         for (const [profileId, profile] of Object.entries(config.auth.profiles)) {
-            if (normalizeProviderName(profile?.provider) === 'cloudflare-ai-gateway') {
+            if (isBundledCloudflareAnthropicGatewayProfile(profileId, profile)) {
                 delete config.auth.profiles[profileId];
             }
         }
@@ -332,9 +339,17 @@ function scrubBundledCloudflareAnthropicGatewayState({ configDir, config }) {
         if (!store?.profiles || typeof store.profiles !== 'object') continue;
         let changed = false;
         for (const [profileId, profile] of Object.entries(store.profiles)) {
-            if (normalizeProviderName(profile?.provider) === 'cloudflare-ai-gateway') {
+            if (isBundledCloudflareAnthropicGatewayProfile(profileId, profile)) {
                 delete store.profiles[profileId];
                 changed = true;
+            }
+        }
+        if (store.order && typeof store.order === 'object') {
+            for (const providerId of Object.keys(store.order)) {
+                if (normalizeProviderName(providerId) === 'cloudflare-ai-gateway') {
+                    delete store.order[providerId];
+                    changed = true;
+                }
             }
         }
         if (changed) {
@@ -408,6 +423,13 @@ function normalizeAgentId(value) {
 
 function normalizeProviderName(value) {
     return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function isBundledCloudflareAnthropicGatewayProfile(profileId, profile) {
+    return (
+        normalizeProviderName(profile?.provider) === 'cloudflare-ai-gateway' ||
+        normalizeProviderName(profileId).startsWith('cloudflare-ai-gateway:')
+    );
 }
 
 function resolveConfigPath(configDir, value) {

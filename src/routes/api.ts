@@ -345,7 +345,7 @@ adminApi.get('/gateway/model-state', async (c) => {
   const script = `
 const fs = require('fs');
 const path = require('path');
-const configDir = '/root/.openclaw';
+const configDir = '/home/openclaw/.openclaw';
 
 function readJson(file) {
   try {

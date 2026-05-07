@@ -6,7 +6,7 @@ import startOpenClawScript from '../../start-openclaw.sh?raw';
 
 const EXPECTED_MODEL_REF = 'cf-ai-gw-workers-ai/@cf/moonshotai/kimi-k2.6';
 const EXPECTED_PROVIDER_ID = 'cf-ai-gw-workers-ai';
-const EXPECTED_MODEL_PATCH_VERSION = 5;
+const EXPECTED_MODEL_PATCH_VERSION = 6;
 const CURRENT_START_SCRIPT_PATH = '/tmp/moltworker-start-openclaw-current.sh';
 
 export function isProcessNotFoundError(error: unknown): boolean {
@@ -82,8 +82,8 @@ export async function isGatewayModelConfigCurrent(sandbox: Sandbox): Promise<boo
   const script = [
     "const fs = require('fs');",
     "const path = require('path');",
-    "const configDir = '/root/.openclaw';",
-    "const config = JSON.parse(fs.readFileSync('/root/.openclaw/openclaw.json', 'utf8'));",
+    "const configDir = '/home/openclaw/.openclaw';",
+    "const config = JSON.parse(fs.readFileSync(path.join(configDir, 'openclaw.json'), 'utf8'));",
     `const expectedModel = ${JSON.stringify(EXPECTED_MODEL_REF)};`,
     `const expectedProvider = ${JSON.stringify(EXPECTED_PROVIDER_ID)};`,
     `const expectedPatchVersion = ${EXPECTED_MODEL_PATCH_VERSION};`,
@@ -101,7 +101,8 @@ export async function isGatewayModelConfigCurrent(sandbox: Sandbox): Promise<boo
     'const modelsJsonCurrent = modelsJsonPaths.length > 0 && modelsJsonPaths.every((file) => { const parsed = readJson(file); const p = parsed?.providers?.[expectedProvider]; const m = Array.isArray(p?.models) ? p.models.find((entry) => entry?.id === "@cf/moonshotai/kimi-k2.6") : null; return p?.baseUrl?.includes("/workers-ai/v1") && p?.api === "openai-completions" && Boolean(m); });',
     'const sessionStores = findFilesNamed(configDir, "sessions.json").map(readJson).filter(Boolean);',
     'const authStores = findFilesNamed(configDir, "auth-profiles.json").map(readJson).filter(Boolean);',
-    'const staleBundledGatewayAuth = Object.values(config.auth?.profiles || {}).some((profile) => String(profile?.provider || "").trim().toLowerCase() === "cloudflare-ai-gateway") || authStores.some((store) => Object.values(store?.profiles || {}).some((profile) => String(profile?.provider || "").trim().toLowerCase() === "cloudflare-ai-gateway"));',
+    'function isBundledGatewayProfile(profileId, profile) { const provider = String(profile?.provider || "").trim().toLowerCase(); const id = String(profileId || "").trim().toLowerCase(); return provider === "cloudflare-ai-gateway" || id.startsWith("cloudflare-ai-gateway:"); }',
+    'const staleBundledGatewayAuth = Object.entries(config.auth?.profiles || {}).some(([profileId, profile]) => isBundledGatewayProfile(profileId, profile)) || authStores.some((store) => Object.entries(store?.profiles || {}).some(([profileId, profile]) => isBundledGatewayProfile(profileId, profile)));',
     'const staleClaude = hasStaleClaude(config) || modelsJsonPaths.map(readJson).filter(Boolean).some(hasStaleClaude) || sessionStores.some(hasStaleClaude);',
     'const patchCurrent = config.moltworker?.aiGatewayModelPatchVersion === expectedPatchVersion && config.moltworker?.selectedModelRef === expectedModel;',
     'const validModel = model?.api === "openai-completions" && typeof model?.reasoning === "boolean" && Boolean(model?.cost) && Number.isFinite(model?.contextWindow) && Number.isFinite(model?.maxTokens);',

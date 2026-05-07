@@ -2,11 +2,19 @@ import { describe, it, expect } from 'vitest';
 import { buildEnvVars } from './env';
 import { createMockEnv } from '../test-utils';
 
+const baseOpenClawEnv = {
+  HOME: '/home/openclaw',
+  OPENCLAW_STATE_DIR: '/home/openclaw/.openclaw',
+  OPENCLAW_CONFIG_PATH: '/home/openclaw/.openclaw/openclaw.json',
+  OPENCLAW_AGENT_DIR: '/home/openclaw/.openclaw/agents/main/agent',
+  PI_CODING_AGENT_DIR: '/home/openclaw/.openclaw/agents/main/agent',
+};
+
 describe('buildEnvVars', () => {
-  it('returns empty object when no env vars set', () => {
+  it('always pins OpenClaw to the canonical persisted home config paths', () => {
     const env = createMockEnv();
     const result = buildEnvVars(env);
-    expect(result).toEqual({});
+    expect(result).toEqual(baseOpenClawEnv);
   });
 
   it('includes ANTHROPIC_API_KEY when set directly', () => {
@@ -163,6 +171,7 @@ describe('buildEnvVars', () => {
     const result = buildEnvVars(env);
 
     expect(result).toEqual({
+      ...baseOpenClawEnv,
       ANTHROPIC_API_KEY: 'sk-key',
       OPENCLAW_GATEWAY_TOKEN: 'token',
       TELEGRAM_BOT_TOKEN: 'tg',
