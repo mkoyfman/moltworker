@@ -21,10 +21,13 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && npm --version
 
 # Install OpenClaw
-# Use latest by default so Cloudflare image rebuilds pick up current OpenClaw.
-# Override OPENCLAW_VERSION at build time if a rollback needs a fixed version.
-ARG OPENCLAW_VERSION=latest
-RUN npm install -g openclaw@${OPENCLAW_VERSION} \
+# Use the current latest release. Bump OPENCLAW_CACHE_BUST whenever the
+# desired OpenClaw version changes so the install layer cannot reuse an old
+# globally-installed binary from Docker cache.
+ARG OPENCLAW_VERSION=2026.5.6
+ARG OPENCLAW_CACHE_BUST=2026-05-07-openclaw-2026.5.6
+RUN echo "Installing OpenClaw ${OPENCLAW_VERSION} (${OPENCLAW_CACHE_BUST})" \
+    && npm install -g openclaw@${OPENCLAW_VERSION} \
     && openclaw --version
 
 # Use /home/openclaw as the home directory instead of /root.

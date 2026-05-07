@@ -7,6 +7,7 @@ import startOpenClawScript from '../../start-openclaw.sh?raw';
 const EXPECTED_MODEL_REF = 'cf-ai-gw-workers-ai/@cf/moonshotai/kimi-k2.6';
 const EXPECTED_PROVIDER_ID = 'cf-ai-gw-workers-ai';
 const EXPECTED_MODEL_PATCH_VERSION = 6;
+const EXPECTED_OPENCLAW_MIN_VERSION = '2026.5.6';
 const CURRENT_START_SCRIPT_PATH = '/tmp/moltworker-start-openclaw-current.sh';
 
 export function isProcessNotFoundError(error: unknown): boolean {
@@ -71,6 +72,42 @@ export async function killGateway(sandbox: Sandbox): Promise<void> {
 export async function isGatewayPortOpen(sandbox: Sandbox): Promise<boolean> {
   const result = await sandbox.exec(`nc -z localhost ${GATEWAY_PORT}`);
   return result.exitCode === 0;
+}
+
+/**
+ * Check the installed OpenClaw version in the sandbox. A Worker deploy can
+ * update code while a warm sandbox container keeps the older image/filesystem,
+ * so version drift must force a container replacement too.
+ */
+export async function isOpenClawRuntimeVersionCurrent(sandbox: Sandbox): Promise<boolean> {
+  const result = await sandbox.exec('openclaw --version');
+  if (result.exitCode !== 0) return false;
+  const actual = parseOpenClawVersion(result.stdout || result.stderr || '');
+  if (!actual) return false;
+  return compareOpenClawVersions(actual, EXPECTED_OPENCLAW_MIN_VERSION) >= 0;
+}
+
+function parseOpenClawVersion(output: string): string | null {
+  const match = output.match(/(\d{4}\.\d+\.\d+(?:-\d+)?)/);
+  return match?.[1] ?? null;
+}
+
+function parseVersionParts(version: string): number[] {
+  return version.split(/[.-]/).map((part) => {
+    const parsed = Number.parseInt(part, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+}
+
+function compareOpenClawVersions(a: string, b: string): number {
+  const left = parseVersionParts(a);
+  const right = parseVersionParts(b);
+  const max = Math.max(left.length, right.length);
+  for (let i = 0; i < max; i++) {
+    const delta = (left[i] ?? 0) - (right[i] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
 }
 
 /**
@@ -206,6 +243,12 @@ export async function ensureGateway(
     if (existingProcess.status === 'running') {
       try {
         if (await isGatewayPortOpen(sandbox)) {
+          const versionCurrent = await isOpenClawRuntimeVersionCurrent(sandbox);
+          if (!versionCurrent) {
+            console.log('Existing gateway OpenClaw runtime is stale, replacing container...');
+            await replaceStaleGatewayContainer(sandbox, existingProcess);
+            return ensureGateway(sandbox, env, options);
+          }
           const configCurrent = await isGatewayModelConfigCurrent(sandbox);
           if (!configCurrent) {
             console.log('Existing gateway model config is stale, replacing container...');
@@ -262,6 +305,12 @@ export async function ensureGateway(
   try {
     if (await isGatewayPortOpen(sandbox)) {
       try {
+        const versionCurrent = await isOpenClawRuntimeVersionCurrent(sandbox);
+        if (!versionCurrent) {
+          console.log('Undetected gateway OpenClaw runtime is stale, replacing container...');
+          await replaceStaleGatewayContainer(sandbox, null);
+          return ensureGateway(sandbox, env, options);
+        }
         const configCurrent = await isGatewayModelConfigCurrent(sandbox);
         if (!configCurrent) {
           console.log('Undetected gateway has stale model config, replacing container...');
