@@ -301,16 +301,19 @@ export async function ensureGateway(
       if (isProcessNotFoundError(e) && (await isGatewayPortOpen(sandbox))) {
         try {
           const versionCurrent = await isOpenClawRuntimeVersionCurrent(sandbox);
-          const configCurrent = versionCurrent
-            ? await isGatewayModelConfigCurrent(sandbox)
-            : false;
+          const configCurrent = versionCurrent ? await isGatewayModelConfigCurrent(sandbox) : false;
           if (!versionCurrent || !configCurrent) {
-            console.log('Existing process handle disappeared with stale gateway, replacing container...');
+            console.log(
+              'Existing process handle disappeared with stale gateway, replacing container...',
+            );
             await replaceStaleGatewayContainer(sandbox, null);
             return ensureGateway(sandbox, env, options);
           }
         } catch (verifyError) {
-          console.log('Could not verify disappeared process handle gateway, keeping open port:', verifyError);
+          console.log(
+            'Could not verify disappeared process handle gateway, keeping open port:',
+            verifyError,
+          );
         }
         console.log('Existing process handle disappeared, but gateway port is open');
         return null;

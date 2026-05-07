@@ -16,6 +16,22 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function parseJsonFromCliOutput(stdout: string): unknown {
+  const jsonMatch = stdout.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+  return JSON.parse(jsonMatch[0]);
+}
+
+function listDevicesCommand(): string {
+  // Do not pass --url here. OpenClaw's devices CLI has a same-host local
+  // fallback for pairing state, but explicit --url disables that fallback.
+  return 'openclaw devices list --json';
+}
+
+function approveDeviceCommand(requestId: string): string {
+  return `openclaw devices approve ${shellQuote(requestId)} --json`;
+}
+
 /**
  * API routes
  * - /api/admin/* - Protected admin API routes (Cloudflare Access required)
@@ -70,13 +86,9 @@ adminApi.get('/devices', async (c) => {
     // Restore before starting the gateway so paired-device state survives redeploys.
     await restoreThenEnsureGateway(sandbox, c.env);
 
-    // Run OpenClaw CLI to list devices
-    // Must specify --url and --token (OpenClaw v2026.2.3 requires explicit credentials with --url)
-    const token = c.env.MOLTBOT_GATEWAY_TOKEN;
-    const tokenArg = token ? ` --token ${token}` : '';
-    const proc = await sandbox.startProcess(
-      `openclaw devices list --json --url ws://localhost:18789${tokenArg}`,
-    );
+    // Run OpenClaw CLI to list devices. Use local fallback instead of
+    // explicit --url so admin pairing keeps working with OpenClaw 2026.5.x.
+    const proc = await sandbox.startProcess(listDevicesCommand());
     await waitForProcess(proc, CLI_TIMEOUT_MS);
 
     const logs = await proc.getLogs();
@@ -85,10 +97,8 @@ adminApi.get('/devices', async (c) => {
 
     // Try to parse JSON output
     try {
-      // Find JSON in output (may have other log lines)
-      const jsonMatch = stdout.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const data = JSON.parse(jsonMatch[0]);
+      const data = parseJsonFromCliOutput(stdout);
+      if (data) {
         return c.json(data);
       }
 
@@ -127,27 +137,58 @@ adminApi.post('/devices/:requestId/approve', async (c) => {
     // Restore before starting the gateway so approvals are applied to persisted state.
     await restoreThenEnsureGateway(sandbox, c.env);
 
-    // Run OpenClaw CLI to approve the device
-    const token = c.env.MOLTBOT_GATEWAY_TOKEN;
-    const tokenArg = token ? ` --token ${token}` : '';
-    const proc = await sandbox.startProcess(
-      `openclaw devices approve ${requestId} --url ws://localhost:18789${tokenArg}`,
-    );
+    // Run OpenClaw CLI to approve the device. Use local fallback instead of
+    // explicit --url so the CLI can approve against the gateway state store.
+    const proc = await sandbox.startProcess(approveDeviceCommand(requestId));
     await waitForProcess(proc, CLI_TIMEOUT_MS);
 
     const logs = await proc.getLogs();
     const stdout = logs.stdout || '';
     const stderr = logs.stderr || '';
 
-    // Check for success indicators (case-insensitive, CLI outputs "Approved ...")
-    const success = stdout.toLowerCase().includes('approved') || proc.exitCode === 0;
+    let approvalResult: unknown = null;
+    try {
+      approvalResult = parseJsonFromCliOutput(stdout);
+    } catch {
+      // Keep raw stdout/stderr below for diagnostics.
+    }
+
+    let stillPending = false;
+    let after: unknown = null;
+    if (proc.exitCode === 0) {
+      const listProc = await sandbox.startProcess(listDevicesCommand());
+      await waitForProcess(listProc, CLI_TIMEOUT_MS);
+      const listLogs = await listProc.getLogs();
+      try {
+        after = parseJsonFromCliOutput(listLogs.stdout || '');
+        const pending = Array.isArray((after as { pending?: unknown[] } | null)?.pending)
+          ? ((after as { pending?: unknown[] }).pending ?? [])
+          : [];
+        stillPending = pending.some(
+          (device) =>
+            typeof device === 'object' &&
+            device !== null &&
+            (device as { requestId?: unknown }).requestId === requestId,
+        );
+      } catch {
+        // If verification parsing fails, preserve the approval command result.
+      }
+    }
+
+    const success = proc.exitCode === 0 && !stillPending;
 
     return c.json({
       success,
       requestId,
-      message: success ? 'Device approved' : 'Approval may have failed',
+      message: success
+        ? 'Device approved'
+        : stillPending
+          ? 'Approval command completed, but the request is still pending'
+          : 'Approval failed',
       stdout,
       stderr,
+      result: approvalResult,
+      after,
       backup: success
         ? await snapshotBestEffort(sandbox, c.env.BACKUP_BUCKET, 'device approval')
         : null,
@@ -166,12 +207,8 @@ adminApi.post('/devices/approve-all', async (c) => {
     // Restore before starting the gateway so approvals are applied to persisted state.
     await restoreThenEnsureGateway(sandbox, c.env);
 
-    // First, get the list of pending devices
-    const token = c.env.MOLTBOT_GATEWAY_TOKEN;
-    const tokenArg = token ? ` --token ${token}` : '';
-    const listProc = await sandbox.startProcess(
-      `openclaw devices list --json --url ws://localhost:18789${tokenArg}`,
-    );
+    // First, get the list of pending devices.
+    const listProc = await sandbox.startProcess(listDevicesCommand());
     await waitForProcess(listProc, CLI_TIMEOUT_MS);
 
     const listLogs = await listProc.getLogs();
@@ -180,11 +217,8 @@ adminApi.post('/devices/approve-all', async (c) => {
     // Parse pending devices
     let pending: Array<{ requestId: string }> = [];
     try {
-      const jsonMatch = stdout.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const data = JSON.parse(jsonMatch[0]);
-        pending = data.pending || [];
-      }
+      const data = parseJsonFromCliOutput(stdout) as { pending?: Array<{ requestId: string }> };
+      pending = data?.pending || [];
     } catch {
       return c.json({ error: 'Failed to parse device list', raw: stdout }, 500);
     }
@@ -199,18 +233,21 @@ adminApi.post('/devices/approve-all', async (c) => {
     for (const device of pending) {
       try {
         // eslint-disable-next-line no-await-in-loop -- sequential device approval required
-        const approveProc = await sandbox.startProcess(
-          `openclaw devices approve ${device.requestId} --url ws://localhost:18789${tokenArg}`,
-        );
+        const approveProc = await sandbox.startProcess(approveDeviceCommand(device.requestId));
         // eslint-disable-next-line no-await-in-loop
         await waitForProcess(approveProc, CLI_TIMEOUT_MS);
 
         // eslint-disable-next-line no-await-in-loop
         const approveLogs = await approveProc.getLogs();
-        const success =
-          approveLogs.stdout?.toLowerCase().includes('approved') || approveProc.exitCode === 0;
+        const success = approveProc.exitCode === 0;
 
-        results.push({ requestId: device.requestId, success });
+        results.push({
+          requestId: device.requestId,
+          success,
+          error: success
+            ? undefined
+            : approveLogs.stderr || approveLogs.stdout || 'Approval failed',
+        });
       } catch (err) {
         results.push({
           requestId: device.requestId,
