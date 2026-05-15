@@ -24,8 +24,8 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # Use the current latest release. Bump OPENCLAW_CACHE_BUST whenever the
 # desired OpenClaw version changes so the install layer cannot reuse an old
 # globally-installed binary from Docker cache.
-ARG OPENCLAW_VERSION=2026.5.6
-ARG OPENCLAW_CACHE_BUST=2026-05-07-openclaw-2026.5.6
+ARG OPENCLAW_VERSION=2026.5.12
+ARG OPENCLAW_CACHE_BUST=2026-05-14-openclaw-2026.5.12
 RUN echo "Installing OpenClaw ${OPENCLAW_VERSION} (${OPENCLAW_CACHE_BUST})" \
     && npm install -g openclaw@${OPENCLAW_VERSION} \
     && openclaw --version

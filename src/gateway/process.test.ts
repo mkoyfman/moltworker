@@ -204,7 +204,7 @@ describe('isGatewayPortOpen', () => {
 describe('isOpenClawRuntimeVersionCurrent', () => {
   it('returns true when OpenClaw is at the expected version', async () => {
     const { sandbox, execMock } = createMockSandbox();
-    execMock.mockResolvedValue(createMockExecResult('2026.5.6\n', { exitCode: 0 }));
+    execMock.mockResolvedValue(createMockExecResult('2026.5.12\n', { exitCode: 0 }));
 
     const result = await isOpenClawRuntimeVersionCurrent(sandbox);
 
@@ -214,7 +214,7 @@ describe('isOpenClawRuntimeVersionCurrent', () => {
 
   it('returns true when OpenClaw is newer than the expected version', async () => {
     const { sandbox, execMock } = createMockSandbox();
-    execMock.mockResolvedValue(createMockExecResult('openclaw 2026.5.7\n', { exitCode: 0 }));
+    execMock.mockResolvedValue(createMockExecResult('openclaw 2026.5.13\n', { exitCode: 0 }));
 
     const result = await isOpenClawRuntimeVersionCurrent(sandbox);
 
