@@ -29,7 +29,7 @@ import { createAccessMiddleware } from './auth';
 import { ensureGateway, findExistingGatewayProcess, killGateway } from './gateway';
 import { publicRoutes, api, adminUi, debug, cdp } from './routes';
 import { redactSensitiveParams } from './utils/logging';
-import { restoreAfterSandboxReplacement, restoreIfNeeded } from './persistence';
+import { getRestoreStatus, restoreAfterSandboxReplacement, restoreIfNeeded } from './persistence';
 import { handleScheduled } from './cron/handler';
 import loadingPageHtml from './assets/loading.html';
 import configErrorHtml from './assets/config-error.html';
@@ -276,6 +276,16 @@ app.all('*', async (c) => {
   const url = new URL(request.url);
   const restoreAfterReplacement = () =>
     restoreAfterSandboxReplacement(sandbox, c.env.BACKUP_BUCKET);
+  const forceRestoreMissingBackup = async (source: string) => {
+    const restoreStatus = await getRestoreStatus(sandbox, c.env.BACKUP_BUCKET);
+    if (!restoreStatus.hasBackup || restoreStatus.restored) return false;
+
+    console.log(`[${source}] Sandbox has not restored latest backup; replacing before gateway use`);
+    await killGateway(sandbox);
+    await sandbox.destroy();
+    await restoreAfterSandboxReplacement(sandbox, c.env.BACKUP_BUCKET);
+    return true;
+  };
 
   console.log('[PROXY] Handling request:', url.pathname);
 
@@ -290,6 +300,7 @@ app.all('*', async (c) => {
   if (!isWebSocketRequest && acceptsHtml) {
     let gatewayReady = false;
     try {
+      await forceRestoreMissingBackup('PROXY');
       const proc = await Promise.race([
         findExistingGatewayProcess(sandbox),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 3_000)),
@@ -356,6 +367,7 @@ app.all('*', async (c) => {
     wsRequest = withGatewayLocalOrigin(wsRequest);
 
     try {
+      await forceRestoreMissingBackup('WS');
       const existingProcess = await findExistingGatewayProcess(sandbox);
       if (!existingProcess) {
         await restoreIfNeeded(sandbox, c.env.BACKUP_BUCKET);

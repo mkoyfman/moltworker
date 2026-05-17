@@ -7,7 +7,7 @@ import {
   isProcessNotFoundError,
   killGateway,
 } from '../gateway';
-import { restoreAfterSandboxReplacement, restoreIfNeeded } from '../persistence';
+import { getRestoreStatus, restoreAfterSandboxReplacement, restoreIfNeeded } from '../persistence';
 
 const STUCK_GATEWAY_RESTART_AFTER_MS = 45_000;
 
@@ -104,6 +104,28 @@ publicRoutes.get('/api/status', async (c) => {
   try {
     let process = await findExistingGatewayProcess(sandbox);
     console.log('[api/status] existing process:', process?.id ?? 'none', process?.status ?? '');
+    const restoreStatus = await getRestoreStatus(sandbox, c.env.BACKUP_BUCKET);
+    if (restoreStatus.hasBackup && !restoreStatus.restored) {
+      console.log(
+        '[api/status] Sandbox has not restored latest backup; replacing before gateway start',
+      );
+      if (process) await killGateway(sandbox);
+      await sandbox.destroy();
+      try {
+        await restoreAfterSandboxReplacement(sandbox, c.env.BACKUP_BUCKET);
+      } catch (err) {
+        const restoreError = err instanceof Error ? err.message : String(err);
+        console.error('[api/status] Forced restore failed:', restoreError);
+        return c.json({
+          ok: false,
+          status: 'restore_failed',
+          restoreError,
+          restoreStatus,
+        });
+      }
+      process = null;
+    }
+
     if (!process) {
       // Restore synchronously — restoreBackup is a fast RPC call (~1-3s).
       // This MUST happen before ensureGateway or the gateway starts without

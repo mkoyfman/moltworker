@@ -15,6 +15,13 @@ export interface BackupHandle {
   createdAt?: string;
 }
 
+export interface RestoreStatus {
+  hasBackup: boolean;
+  backupId: string | null;
+  restored: boolean;
+  localBackupId: string | null;
+}
+
 /**
  * Signal that a restore is needed (e.g. after gateway restart).
  * Writes a marker to R2 so ALL Worker isolates will re-restore,
@@ -75,6 +82,26 @@ fs.writeFileSync(markerPath, JSON.stringify({
 }, null, 2) + '\\n');
 `;
   await sandbox.exec(`node -e ${JSON.stringify(script)}`);
+}
+
+export async function getRestoreStatus(sandbox: Sandbox, bucket: R2Bucket): Promise<RestoreStatus> {
+  const handle = await getStoredHandle(bucket);
+  if (!handle) {
+    return {
+      hasBackup: false,
+      backupId: null,
+      restored: true,
+      localBackupId: null,
+    };
+  }
+  const localMarker = await readLocalRestoreMarker(sandbox);
+  const localBackupId = localMarker?.backupId ?? null;
+  return {
+    hasBackup: true,
+    backupId: handle.id,
+    restored: localBackupId === handle.id,
+    localBackupId,
+  };
 }
 
 /**

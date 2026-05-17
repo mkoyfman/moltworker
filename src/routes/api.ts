@@ -5,6 +5,7 @@ import { ensureGateway, findExistingGatewayProcess, killGateway, waitForProcess 
 import {
   createSnapshot,
   getLastBackupInfo,
+  getRestoreStatus,
   restoreAfterSandboxReplacement,
   restoreIfNeeded,
   signalRestoreNeeded,
@@ -51,7 +52,15 @@ async function restoreThenEnsureGateway(
   env: AppEnv['Bindings'],
 ) {
   const existingProcess = await findExistingGatewayProcess(sandbox);
-  if (!existingProcess) {
+  const restoreStatus = await getRestoreStatus(sandbox, env.BACKUP_BUCKET);
+  if (restoreStatus.hasBackup && !restoreStatus.restored) {
+    console.log(
+      '[Admin API] Sandbox has not restored latest backup; replacing before gateway start',
+    );
+    if (existingProcess) await killGateway(sandbox);
+    await sandbox.destroy();
+    await restoreAfterSandboxReplacement(sandbox, env.BACKUP_BUCKET);
+  } else if (!existingProcess) {
     try {
       await restoreIfNeeded(sandbox, env.BACKUP_BUCKET);
     } catch (err) {
@@ -291,12 +300,16 @@ adminApi.get('/storage', async (c) => {
   if (!c.env.CLOUDFLARE_ACCOUNT_ID) missing.push('CLOUDFLARE_ACCOUNT_ID');
 
   const lastBackup = hasCredentials ? await getLastBackupInfo(c.env.BACKUP_BUCKET) : null;
+  const restoreStatus = hasCredentials
+    ? await getRestoreStatus(c.get('sandbox'), c.env.BACKUP_BUCKET)
+    : null;
 
   return c.json({
     configured: hasCredentials,
     missing: missing.length > 0 ? missing : undefined,
     lastBackupId: lastBackup?.id ?? null,
     lastBackupAt: lastBackup?.createdAt ?? null,
+    restoreStatus,
     message: hasCredentials
       ? 'R2 storage is configured. Your data will persist across container restarts via SDK snapshots.'
       : 'R2 storage is not configured. Paired devices and conversations will be lost when the container restarts.',
