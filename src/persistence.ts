@@ -229,11 +229,11 @@ export async function createSnapshot(sandbox: Sandbox, bucket: R2Bucket): Promis
   };
 
   await storeHandle(bucket, storedHandle);
-  try {
-    await writeLocalRestoreMarker(sandbox, storedHandle);
-  } catch (markerErr) {
-    console.warn('[persistence] Could not update local restore marker after backup:', markerErr);
-  }
+  // createBackup can reset the mounted filesystem overlay. Do not mark the
+  // live sandbox as restored to the new backup; force the next gateway start
+  // to restore the just-created snapshot.
+  restored = false;
+  await bucket.put(RESTORE_NEEDED_KEY, '1');
 
   if (previousHandle && previousHandle.id !== storedHandle.id) {
     try {

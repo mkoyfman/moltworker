@@ -332,9 +332,14 @@ adminApi.post('/storage/sync', async (c) => {
       // non-fatal
     }
     const handle = await createSnapshot(sandbox, c.env.BACKUP_BUCKET);
+    try {
+      await killGateway(sandbox);
+    } catch (killError) {
+      console.warn('[Admin API] Could not stop gateway after snapshot:', killError);
+    }
     return c.json({
       success: true,
-      message: 'Snapshot created successfully',
+      message: 'Snapshot created successfully; gateway will restore it on the next status check',
       backupId: handle.id,
       lastBackupAt: handle.createdAt,
       debug: { mountState, dirContents },
