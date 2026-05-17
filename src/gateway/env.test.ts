@@ -8,6 +8,10 @@ const baseOpenClawEnv = {
   OPENCLAW_CONFIG_PATH: '/home/openclaw/.openclaw/openclaw.json',
   OPENCLAW_AGENT_DIR: '/home/openclaw/.openclaw/agents/main/agent',
   PI_CODING_AGENT_DIR: '/home/openclaw/.openclaw/agents/main/agent',
+  OPENCLAW_GATEWAY_STARTUP_TRACE: '1',
+  OPENCLAW_SKIP_STARTUP_MODEL_PREWARM: '1',
+  OPENCLAW_SKIP_BROWSER_CONTROL_SERVER: '1',
+  OPENCLAW_SKIP_ACPX_RUNTIME_PROBE: '1',
 };
 
 describe('buildEnvVars', () => {
