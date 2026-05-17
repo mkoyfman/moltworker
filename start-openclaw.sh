@@ -599,6 +599,7 @@ echo "Gateway will be available on port 18789"
 
 rm -f /tmp/openclaw-gateway.lock 2>/dev/null || true
 rm -f "$CONFIG_DIR/gateway.lock" 2>/dev/null || true
+rm -f /tmp/openclaw-*/gateway.*.lock 2>/dev/null || true
 
 echo "Dev mode: ${OPENCLAW_DEV_MODE:-false}"
 
