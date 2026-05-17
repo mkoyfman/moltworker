@@ -29,7 +29,7 @@ import { createAccessMiddleware } from './auth';
 import { ensureGateway, findExistingGatewayProcess, killGateway } from './gateway';
 import { publicRoutes, api, adminUi, debug, cdp } from './routes';
 import { redactSensitiveParams } from './utils/logging';
-import { getRestoreStatus, restoreAfterSandboxReplacement, restoreIfNeeded } from './persistence';
+import { getRestoreStatus, restoreIfNeeded, signalRestoreNeeded } from './persistence';
 import { handleScheduled } from './cron/handler';
 import loadingPageHtml from './assets/loading.html';
 import configErrorHtml from './assets/config-error.html';
@@ -274,16 +274,14 @@ app.all('*', async (c) => {
   const sandbox = c.get('sandbox');
   const request = c.req.raw;
   const url = new URL(request.url);
-  const restoreAfterReplacement = () =>
-    restoreAfterSandboxReplacement(sandbox, c.env.BACKUP_BUCKET);
+  const signalRestoreAfterReplacement = () => signalRestoreNeeded(c.env.BACKUP_BUCKET);
   const forceRestoreMissingBackup = async (source: string) => {
     const restoreStatus = await getRestoreStatus(sandbox, c.env.BACKUP_BUCKET);
     if (!restoreStatus.hasBackup || restoreStatus.restored) return false;
 
-    console.log(`[${source}] Sandbox has not restored latest backup; replacing before gateway use`);
+    console.log(`[${source}] Sandbox has not restored latest backup; restoring before gateway use`);
     await killGateway(sandbox);
-    await sandbox.destroy();
-    await restoreAfterSandboxReplacement(sandbox, c.env.BACKUP_BUCKET);
+    await restoreIfNeeded(sandbox, c.env.BACKUP_BUCKET);
     return true;
   };
 
@@ -311,7 +309,7 @@ app.all('*', async (c) => {
         // still alive, this restarts it before serving the Control UI.
         const currentProc = await ensureGateway(sandbox, c.env, {
           waitForReady: false,
-          onContainerReplaced: restoreAfterReplacement,
+          onContainerReplaced: signalRestoreAfterReplacement,
         });
         gatewayReady = currentProc !== null && currentProc.status === 'running';
       }
@@ -333,7 +331,7 @@ app.all('*', async (c) => {
       // non-fatal
     }
     try {
-      await ensureGateway(sandbox, c.env, { onContainerReplaced: restoreAfterReplacement });
+      await ensureGateway(sandbox, c.env, { onContainerReplaced: signalRestoreAfterReplacement });
     } catch (error) {
       console.error('[PROXY] Failed to start gateway:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -374,7 +372,7 @@ app.all('*', async (c) => {
       }
       await ensureGateway(sandbox, c.env, {
         waitForReady: false,
-        onContainerReplaced: restoreAfterReplacement,
+        onContainerReplaced: signalRestoreAfterReplacement,
       });
     } catch (err) {
       console.error('[WS] Failed to verify gateway before WebSocket proxy:', err);
@@ -393,7 +391,9 @@ app.all('*', async (c) => {
         } catch {
           // non-fatal
         }
-        await ensureGateway(sandbox, c.env, { onContainerReplaced: restoreAfterReplacement });
+        await ensureGateway(sandbox, c.env, {
+          onContainerReplaced: signalRestoreAfterReplacement,
+        });
         try {
           containerResponse = await sandbox.wsConnect(wsRequest, GATEWAY_PORT);
         } catch (retryErr) {
@@ -547,7 +547,7 @@ app.all('*', async (c) => {
       } catch {
         // non-fatal
       }
-      await ensureGateway(sandbox, c.env, { onContainerReplaced: restoreAfterReplacement });
+      await ensureGateway(sandbox, c.env, { onContainerReplaced: signalRestoreAfterReplacement });
       try {
         httpResponse = await sandbox.containerFetch(gatewayRequest, GATEWAY_PORT);
       } catch (retryErr) {

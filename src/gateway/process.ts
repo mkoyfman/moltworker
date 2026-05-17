@@ -257,13 +257,13 @@ export async function ensureGateway(
           if (!versionCurrent) {
             console.log('Existing gateway OpenClaw runtime is stale, replacing container...');
             await replaceStaleGatewayContainer(sandbox, existingProcess, options);
-            return ensureGateway(sandbox, env, options);
+            return null;
           }
           const configCurrent = await isGatewayModelConfigCurrent(sandbox);
           if (!configCurrent) {
             console.log('Existing gateway model config is stale, replacing container...');
             await replaceStaleGatewayContainer(sandbox, existingProcess, options);
-            return ensureGateway(sandbox, env, options);
+            return null;
           }
         } else {
           console.log(
@@ -297,13 +297,13 @@ export async function ensureGateway(
       if (!versionCurrent) {
         console.log('Reachable gateway OpenClaw runtime is stale, replacing container...');
         await replaceStaleGatewayContainer(sandbox, existingProcess, options);
-        return ensureGateway(sandbox, env, options);
+        return null;
       }
       const configCurrent = await isGatewayModelConfigCurrent(sandbox);
       if (!configCurrent) {
         console.log('Reachable gateway model config is stale, replacing container...');
         await replaceStaleGatewayContainer(sandbox, existingProcess, options);
-        return ensureGateway(sandbox, env, options);
+        return null;
       }
       return existingProcess;
     } catch (e) {
@@ -316,7 +316,7 @@ export async function ensureGateway(
               'Existing process handle disappeared with stale gateway, replacing container...',
             );
             await replaceStaleGatewayContainer(sandbox, null, options);
-            return ensureGateway(sandbox, env, options);
+            return null;
           }
         } catch (verifyError) {
           console.log(
@@ -347,13 +347,13 @@ export async function ensureGateway(
         if (!versionCurrent) {
           console.log('Undetected gateway OpenClaw runtime is stale, replacing container...');
           await replaceStaleGatewayContainer(sandbox, null, options);
-          return ensureGateway(sandbox, env, options);
+          return null;
         }
         const configCurrent = await isGatewayModelConfigCurrent(sandbox);
         if (!configCurrent) {
           console.log('Undetected gateway has stale model config, replacing container...');
           await replaceStaleGatewayContainer(sandbox, null, options);
-          return ensureGateway(sandbox, env, options);
+          return null;
         }
       } catch (e) {
         console.log('Could not verify undetected gateway model config, keeping open port:', e);

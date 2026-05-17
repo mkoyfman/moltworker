@@ -6,7 +6,6 @@ import {
   createSnapshot,
   getLastBackupInfo,
   getRestoreStatus,
-  restoreAfterSandboxReplacement,
   restoreIfNeeded,
   signalRestoreNeeded,
 } from '../persistence';
@@ -55,11 +54,10 @@ async function restoreThenEnsureGateway(
   const restoreStatus = await getRestoreStatus(sandbox, env.BACKUP_BUCKET);
   if (restoreStatus.hasBackup && !restoreStatus.restored) {
     console.log(
-      '[Admin API] Sandbox has not restored latest backup; replacing before gateway start',
+      '[Admin API] Sandbox has not restored latest backup; restoring before gateway start',
     );
     if (existingProcess) await killGateway(sandbox);
-    await sandbox.destroy();
-    await restoreAfterSandboxReplacement(sandbox, env.BACKUP_BUCKET);
+    await restoreIfNeeded(sandbox, env.BACKUP_BUCKET);
   } else if (!existingProcess) {
     try {
       await restoreIfNeeded(sandbox, env.BACKUP_BUCKET);
@@ -68,7 +66,7 @@ async function restoreThenEnsureGateway(
     }
   }
   return ensureGateway(sandbox, env, {
-    onContainerReplaced: () => restoreAfterSandboxReplacement(sandbox, env.BACKUP_BUCKET),
+    onContainerReplaced: () => signalRestoreNeeded(env.BACKUP_BUCKET),
   });
 }
 
@@ -338,15 +336,9 @@ adminApi.post('/storage/sync', async (c) => {
     } catch (killError) {
       console.warn('[Admin API] Could not stop gateway after snapshot:', killError);
     }
-    try {
-      await sandbox.destroy();
-    } catch (destroyError) {
-      console.warn('[Admin API] Could not destroy sandbox after snapshot:', destroyError);
-    }
     return c.json({
       success: true,
-      message:
-        'Snapshot created successfully; gateway container was replaced and will restore it on the next status check',
+      message: 'Snapshot created successfully; gateway will restore it on the next status check',
       backupId: handle.id,
       lastBackupAt: handle.createdAt,
       debug: { mountState, dirContents },

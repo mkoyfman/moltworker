@@ -7,7 +7,7 @@ import {
   isProcessNotFoundError,
   killGateway,
 } from '../gateway';
-import { getRestoreStatus, restoreAfterSandboxReplacement, restoreIfNeeded } from '../persistence';
+import { getRestoreStatus, restoreIfNeeded, signalRestoreNeeded } from '../persistence';
 
 const STUCK_GATEWAY_RESTART_AFTER_MS = 45_000;
 
@@ -98,8 +98,7 @@ publicRoutes.get('/logo-small.png', (c) => {
 // GET /api/status - Public health check for gateway status (no auth required)
 publicRoutes.get('/api/status', async (c) => {
   const sandbox = c.get('sandbox');
-  const restoreAfterReplacement = () =>
-    restoreAfterSandboxReplacement(sandbox, c.env.BACKUP_BUCKET);
+  const signalRestoreAfterReplacement = () => signalRestoreNeeded(c.env.BACKUP_BUCKET);
 
   try {
     let process = await findExistingGatewayProcess(sandbox);
@@ -107,12 +106,11 @@ publicRoutes.get('/api/status', async (c) => {
     const restoreStatus = await getRestoreStatus(sandbox, c.env.BACKUP_BUCKET);
     if (restoreStatus.hasBackup && !restoreStatus.restored) {
       console.log(
-        '[api/status] Sandbox has not restored latest backup; replacing before gateway start',
+        '[api/status] Sandbox has not restored latest backup; restoring before gateway start',
       );
       if (process) await killGateway(sandbox);
-      await sandbox.destroy();
       try {
-        await restoreAfterSandboxReplacement(sandbox, c.env.BACKUP_BUCKET);
+        await restoreIfNeeded(sandbox, c.env.BACKUP_BUCKET);
       } catch (err) {
         const restoreError = err instanceof Error ? err.message : String(err);
         console.error('[api/status] Forced restore failed:', restoreError);
@@ -148,7 +146,7 @@ publicRoutes.get('/api/status', async (c) => {
       try {
         const started = await ensureGateway(sandbox, c.env, {
           waitForReady: false,
-          onContainerReplaced: restoreAfterReplacement,
+          onContainerReplaced: signalRestoreAfterReplacement,
         });
         if (started) {
           const diagnostics = await getProcessDiagnostics(started, 3000);
@@ -194,7 +192,7 @@ publicRoutes.get('/api/status', async (c) => {
     // restarts old containers that still point at Claude after a deploy.
     process = await ensureGateway(sandbox, c.env, {
       waitForReady: false,
-      onContainerReplaced: restoreAfterReplacement,
+      onContainerReplaced: signalRestoreAfterReplacement,
     });
     if (!process) {
       return c.json({ ok: false, status: 'starting', restoreError: null });
@@ -246,7 +244,7 @@ publicRoutes.get('/api/status', async (c) => {
         }
         const restarted = await ensureGateway(sandbox, c.env, {
           waitForReady: false,
-          onContainerReplaced: restoreAfterReplacement,
+          onContainerReplaced: signalRestoreAfterReplacement,
         });
         return c.json({
           ok: false,
