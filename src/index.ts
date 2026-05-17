@@ -280,8 +280,9 @@ app.all('*', async (c) => {
     const restoreStatus = await getRestoreStatus(sandbox, c.env.BACKUP_BUCKET);
     if (!restoreStatus.hasBackup || restoreStatus.restored) return false;
 
-    console.log(`[${source}] Sandbox has not restored latest backup; restoring before gateway use`);
+    console.log(`[${source}] Sandbox has not restored latest backup; replacing before gateway use`);
     await killGateway(sandbox);
+    await sandbox.destroy();
     await restoreAfterSandboxReplacement(sandbox, c.env.BACKUP_BUCKET);
     return true;
   };

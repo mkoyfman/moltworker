@@ -107,9 +107,10 @@ publicRoutes.get('/api/status', async (c) => {
     const restoreStatus = await getRestoreStatus(sandbox, c.env.BACKUP_BUCKET);
     if (restoreStatus.hasBackup && !restoreStatus.restored) {
       console.log(
-        '[api/status] Sandbox has not restored latest backup; restoring before gateway start',
+        '[api/status] Sandbox has not restored latest backup; replacing before gateway start',
       );
       if (process) await killGateway(sandbox);
+      await sandbox.destroy();
       try {
         await restoreAfterSandboxReplacement(sandbox, c.env.BACKUP_BUCKET);
       } catch (err) {
