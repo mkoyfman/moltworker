@@ -60,6 +60,18 @@ async function deleteHandle(bucket: R2Bucket): Promise<void> {
   await bucket.delete(HANDLE_KEY);
 }
 
+function isExpiredOrMissingBackupError(error: unknown): boolean {
+  const text =
+    error instanceof Error
+      ? `${error.name}\n${error.message}`
+      : typeof error === 'string'
+        ? error
+        : JSON.stringify(error);
+  return /BACKUP_(?:EXPIRED|NOT_FOUND)|Backup(?:Expired|NotFound)Error|has expired|backup .*not found/i.test(
+    text,
+  );
+}
+
 async function readLocalRestoreMarker(sandbox: Sandbox): Promise<{ backupId?: string } | null> {
   try {
     const result = await sandbox.exec(`cat ${RESTORE_MARKER_PATH} 2>/dev/null || true`);
@@ -163,8 +175,7 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
     restored = true;
     console.log(`[persistence] Restore complete in ${Date.now() - t0}ms`);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('BACKUP_EXPIRED') || msg.includes('BACKUP_NOT_FOUND')) {
+    if (isExpiredOrMissingBackupError(err)) {
       console.log(`[persistence] Backup ${handle.id} expired/gone, clearing handle`);
       await deleteHandle(bucket);
       await bucket.delete(RESTORE_NEEDED_KEY);
