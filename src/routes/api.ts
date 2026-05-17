@@ -55,10 +55,9 @@ async function restoreThenEnsureGateway(
   const restoreStatus = await getRestoreStatus(sandbox, env.BACKUP_BUCKET);
   if (restoreStatus.hasBackup && !restoreStatus.restored) {
     console.log(
-      '[Admin API] Sandbox has not restored latest backup; replacing before gateway start',
+      '[Admin API] Sandbox has not restored latest backup; restoring before gateway start',
     );
     if (existingProcess) await killGateway(sandbox);
-    await sandbox.destroy();
     await restoreAfterSandboxReplacement(sandbox, env.BACKUP_BUCKET);
   } else if (!existingProcess) {
     try {

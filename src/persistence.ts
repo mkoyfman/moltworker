@@ -3,6 +3,7 @@ import type { Sandbox } from '@cloudflare/sandbox';
 const BACKUP_DIR = '/home/openclaw';
 const HANDLE_KEY = 'backup-handle.json';
 const RESTORE_MARKER_PATH = `${BACKUP_DIR}/.moltworker-restore.json`;
+const BACKUP_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 const RESTORE_NEEDED_KEY = 'restore-needed';
 
@@ -136,6 +137,7 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
   const handle = await getStoredHandle(bucket);
   if (!handle) {
     console.log('[persistence] No backup handle found in R2, skipping restore');
+    await bucket.delete(RESTORE_NEEDED_KEY);
     restored = true;
     return;
   }
@@ -165,6 +167,8 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
     if (msg.includes('BACKUP_EXPIRED') || msg.includes('BACKUP_NOT_FOUND')) {
       console.log(`[persistence] Backup ${handle.id} expired/gone, clearing handle`);
       await deleteHandle(bucket);
+      await bucket.delete(RESTORE_NEEDED_KEY);
+      restored = true;
     } else {
       console.error(`[persistence] Restore failed:`, err);
       throw err;
@@ -205,7 +209,7 @@ export async function createSnapshot(sandbox: Sandbox, bucket: R2Bucket): Promis
   const t0 = Date.now();
   const handle = await sandbox.createBackup({
     dir: BACKUP_DIR,
-    ttl: 604800, // 7 days
+    ttl: BACKUP_TTL_SECONDS,
   });
 
   const storedHandle = {
