@@ -1,8 +1,8 @@
 #!/bin/bash
 # Startup script for OpenClaw in Cloudflare Sandbox
 # This script:
-# 1. Runs openclaw onboard --non-interactive to configure from env vars
-# 2. Patches config for features onboard doesn't cover (channels, gateway auth)
+# 1. Ensures OpenClaw is installed at the expected version
+# 2. Writes/patches config from environment variables
 # 3. Starts the gateway
 #
 # NOTE: Persistence (backup/restore) is handled by the Sandbox SDK at the
@@ -27,6 +27,7 @@ export OPENCLAW_STATE_DIR="$CONFIG_DIR"
 export OPENCLAW_CONFIG_PATH="$CONFIG_FILE"
 export OPENCLAW_AGENT_DIR="${OPENCLAW_AGENT_DIR:-$CONFIG_DIR/agents/main/agent}"
 export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$OPENCLAW_AGENT_DIR}"
+export OPENCLAW_WORKSPACE_DIR="$WORKSPACE_DIR"
 
 echo "Config directory: $CONFIG_DIR"
 
@@ -71,47 +72,15 @@ else
 fi
 openclaw --version
 
-# ============================================================
-# ONBOARD (only if no config exists yet)
-# ============================================================
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "No existing config found, running openclaw onboard..."
-
-    # Determine auth choice — openclaw onboard reads the actual key values
-    # from environment variables (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
-    # so we only pass --auth-choice, never the key itself, to avoid
-    # exposing secrets in process arguments visible via ps/proc.
-    AUTH_ARGS=""
-    if [ -n "$CLOUDFLARE_AI_GATEWAY_API_KEY" ] && [ -n "$CF_AI_GATEWAY_ACCOUNT_ID" ] && [ -n "$CF_AI_GATEWAY_GATEWAY_ID" ]; then
-        AUTH_ARGS="--auth-choice cloudflare-ai-gateway-api-key --cloudflare-ai-gateway-account-id $CF_AI_GATEWAY_ACCOUNT_ID --cloudflare-ai-gateway-gateway-id $CF_AI_GATEWAY_GATEWAY_ID"
-    elif [ -n "$ANTHROPIC_API_KEY" ]; then
-        AUTH_ARGS="--auth-choice apiKey"
-    elif [ -n "$OPENAI_API_KEY" ]; then
-        AUTH_ARGS="--auth-choice openai-api-key"
-    fi
-
-    openclaw onboard --non-interactive --accept-risk \
-        --mode local \
-        $AUTH_ARGS \
-        --gateway-port 18789 \
-        --gateway-bind lan \
-        --skip-channels \
-        --skip-skills \
-        --skip-health
-
-    echo "Onboard completed"
+    echo "No existing config found; creating Moltworker-managed config"
 else
     echo "Using existing config"
 fi
 
 # ============================================================
-# PATCH CONFIG (channels, gateway auth, trusted proxies)
+# PATCH CONFIG (workspace, models, channels, gateway auth, trusted proxies)
 # ============================================================
-# openclaw onboard handles provider/model config, but we need to patch in:
-# - Channel config (Telegram, Discord, Slack)
-# - Gateway token auth
-# - Trusted proxies for sandbox networking
-# - Base URL override for legacy AI Gateway path
 node << 'EOFPATCH'
 const fs = require('fs');
 const path = require('path');
@@ -119,6 +88,7 @@ const path = require('path');
 const configDir = process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/home/openclaw', '.openclaw');
 const configPath = process.env.OPENCLAW_CONFIG_PATH || path.join(configDir, 'openclaw.json');
 const moltworkerStatePath = path.join(configDir, 'moltworker-state.json');
+const workspaceDir = process.env.OPENCLAW_WORKSPACE_DIR || path.join(process.env.HOME || '/home/openclaw', 'clawd');
 const DEFAULT_CF_AI_GATEWAY_MODEL = 'workers-ai/@cf/moonshotai/kimi-k2.6';
 const MODEL_PATCH_VERSION = 7;
 
@@ -133,6 +103,13 @@ try {
 
 config.gateway = config.gateway || {};
 config.channels = config.channels || {};
+config.agents = config.agents || {};
+config.agents.defaults = config.agents.defaults || {};
+config.agents.defaults.workspace = config.agents.defaults.workspace || workspaceDir;
+config.session = config.session || {};
+config.session.dmScope = config.session.dmScope || 'per-channel-peer';
+config.tools = config.tools || {};
+config.tools.profile = config.tools.profile || 'coding';
 delete config.moltworker;
 
 // Gateway configuration
