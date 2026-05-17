@@ -9,7 +9,7 @@ import {
 } from '../gateway';
 import { getRestoreStatus, restoreIfNeeded, signalRestoreNeeded } from '../persistence';
 
-const STUCK_GATEWAY_RESTART_AFTER_MS = 45_000;
+const STUCK_GATEWAY_RESTART_AFTER_MS = 5 * 60_000;
 
 function getProcessAgeMs(process: {
   id: string;
@@ -178,6 +178,8 @@ publicRoutes.get('/api/status', async (c) => {
             restoreError,
             processId: diagnostics.processId,
             processStatus: diagnostics.processStatus,
+            processAgeMs: diagnostics.processAgeMs,
+            diagnostics,
           });
         }
       } catch (err) {
@@ -263,6 +265,7 @@ publicRoutes.get('/api/status', async (c) => {
         processId: process.id,
         processStatus: diagnostics.processStatus,
         processAgeMs: diagnostics.processAgeMs,
+        diagnostics,
       });
     }
   } catch (err) {
