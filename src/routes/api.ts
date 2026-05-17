@@ -5,6 +5,7 @@ import { ensureGateway, findExistingGatewayProcess, killGateway, waitForProcess 
 import {
   createSnapshot,
   getLastBackupInfo,
+  restoreAfterSandboxReplacement,
   restoreIfNeeded,
   signalRestoreNeeded,
 } from '../persistence';
@@ -57,7 +58,9 @@ async function restoreThenEnsureGateway(
       console.error('[Admin API] Restore before gateway start failed:', err);
     }
   }
-  return ensureGateway(sandbox, env);
+  return ensureGateway(sandbox, env, {
+    onContainerReplaced: () => restoreAfterSandboxReplacement(sandbox, env.BACKUP_BUCKET),
+  });
 }
 
 async function snapshotBestEffort(

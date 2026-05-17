@@ -29,7 +29,7 @@ import { createAccessMiddleware } from './auth';
 import { ensureGateway, findExistingGatewayProcess, killGateway } from './gateway';
 import { publicRoutes, api, adminUi, debug, cdp } from './routes';
 import { redactSensitiveParams } from './utils/logging';
-import { restoreIfNeeded } from './persistence';
+import { restoreAfterSandboxReplacement, restoreIfNeeded } from './persistence';
 import { handleScheduled } from './cron/handler';
 import loadingPageHtml from './assets/loading.html';
 import configErrorHtml from './assets/config-error.html';
@@ -274,6 +274,8 @@ app.all('*', async (c) => {
   const sandbox = c.get('sandbox');
   const request = c.req.raw;
   const url = new URL(request.url);
+  const restoreAfterReplacement = () =>
+    restoreAfterSandboxReplacement(sandbox, c.env.BACKUP_BUCKET);
 
   console.log('[PROXY] Handling request:', url.pathname);
 
@@ -296,7 +298,10 @@ app.all('*', async (c) => {
         // ensureGateway performs config drift detection. If a deployed Worker
         // update changed start-openclaw.sh but the old container process is
         // still alive, this restarts it before serving the Control UI.
-        const currentProc = await ensureGateway(sandbox, c.env, { waitForReady: false });
+        const currentProc = await ensureGateway(sandbox, c.env, {
+          waitForReady: false,
+          onContainerReplaced: restoreAfterReplacement,
+        });
         gatewayReady = currentProc !== null && currentProc.status === 'running';
       }
     } catch {
@@ -317,7 +322,7 @@ app.all('*', async (c) => {
       // non-fatal
     }
     try {
-      await ensureGateway(sandbox, c.env);
+      await ensureGateway(sandbox, c.env, { onContainerReplaced: restoreAfterReplacement });
     } catch (error) {
       console.error('[PROXY] Failed to start gateway:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -355,7 +360,10 @@ app.all('*', async (c) => {
       if (!existingProcess) {
         await restoreIfNeeded(sandbox, c.env.BACKUP_BUCKET);
       }
-      await ensureGateway(sandbox, c.env, { waitForReady: false });
+      await ensureGateway(sandbox, c.env, {
+        waitForReady: false,
+        onContainerReplaced: restoreAfterReplacement,
+      });
     } catch (err) {
       console.error('[WS] Failed to verify gateway before WebSocket proxy:', err);
     }
@@ -373,7 +381,7 @@ app.all('*', async (c) => {
         } catch {
           // non-fatal
         }
-        await ensureGateway(sandbox, c.env);
+        await ensureGateway(sandbox, c.env, { onContainerReplaced: restoreAfterReplacement });
         try {
           containerResponse = await sandbox.wsConnect(wsRequest, GATEWAY_PORT);
         } catch (retryErr) {
@@ -527,7 +535,7 @@ app.all('*', async (c) => {
       } catch {
         // non-fatal
       }
-      await ensureGateway(sandbox, c.env);
+      await ensureGateway(sandbox, c.env, { onContainerReplaced: restoreAfterReplacement });
       try {
         httpResponse = await sandbox.containerFetch(gatewayRequest, GATEWAY_PORT);
       } catch (retryErr) {

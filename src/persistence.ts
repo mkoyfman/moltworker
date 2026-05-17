@@ -2,6 +2,7 @@ import type { Sandbox } from '@cloudflare/sandbox';
 
 const BACKUP_DIR = '/home/openclaw';
 const HANDLE_KEY = 'backup-handle.json';
+const RESTORE_MARKER_PATH = `${BACKUP_DIR}/.moltworker-restore.json`;
 
 const RESTORE_NEEDED_KEY = 'restore-needed';
 
@@ -24,6 +25,14 @@ export async function signalRestoreNeeded(bucket: R2Bucket): Promise<void> {
   await bucket.put(RESTORE_NEEDED_KEY, '1');
 }
 
+export async function restoreAfterSandboxReplacement(
+  sandbox: Sandbox,
+  bucket: R2Bucket,
+): Promise<void> {
+  await signalRestoreNeeded(bucket);
+  await restoreIfNeeded(sandbox, bucket);
+}
+
 // Backward compat alias
 export function clearPersistenceCache(): void {
   restored = false;
@@ -43,6 +52,31 @@ async function deleteHandle(bucket: R2Bucket): Promise<void> {
   await bucket.delete(HANDLE_KEY);
 }
 
+async function readLocalRestoreMarker(sandbox: Sandbox): Promise<{ backupId?: string } | null> {
+  try {
+    const result = await sandbox.exec(`cat ${RESTORE_MARKER_PATH} 2>/dev/null || true`);
+    const raw = result.stdout?.trim();
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function writeLocalRestoreMarker(sandbox: Sandbox, handle: BackupHandle): Promise<void> {
+  const script = `
+const fs = require('fs');
+const path = require('path');
+const markerPath = ${JSON.stringify(RESTORE_MARKER_PATH)};
+fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+fs.writeFileSync(markerPath, JSON.stringify({
+  backupId: ${JSON.stringify(handle.id)},
+  restoredAt: new Date().toISOString()
+}, null, 2) + '\\n');
+`;
+  await sandbox.exec(`node -e ${JSON.stringify(script)}`);
+}
+
 /**
  * Restore the most recent backup if one exists and hasn't been restored yet.
  *
@@ -60,8 +94,15 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
     // Fast path: this isolate already restored. But check if another
     // isolate signaled a restore is needed (e.g. after gateway restart).
     const marker = await bucket.head(RESTORE_NEEDED_KEY);
-    if (!marker) return; // No restore signal — we're good
-    console.log('[persistence] Restore signal found in R2, re-restoring...');
+    if (!marker) {
+      const handle = await getStoredHandle(bucket);
+      if (!handle) return;
+      const localMarker = await readLocalRestoreMarker(sandbox);
+      if (localMarker?.backupId === handle.id) return;
+      console.log('[persistence] Restore flag was set, but local restore marker is stale/missing');
+    } else {
+      console.log('[persistence] Restore signal found in R2, re-restoring...');
+    }
     restored = false;
   }
 
@@ -83,6 +124,11 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
   const t0 = Date.now();
   try {
     await sandbox.restoreBackup(handle);
+    try {
+      await writeLocalRestoreMarker(sandbox, handle);
+    } catch (markerErr) {
+      console.warn('[persistence] Could not write local restore marker:', markerErr);
+    }
     // Clear the restore signal and set the per-isolate flag
     await bucket.delete(RESTORE_NEEDED_KEY);
     restored = true;
@@ -102,20 +148,22 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
 /**
  * Create a new snapshot of /home/openclaw (config + workspace + skills).
  *
- * Follows the delete-then-write pattern from the Cloudflare docs: the previous
- * backup's R2 objects are removed before creating a new one, and the handle is
- * persisted to R2 for cross-isolate access.
+ * Creates the new backup before deleting the previous backup objects. This
+ * preserves the last known-good snapshot if backup creation fails.
  *
  * The Sandbox SDK only allows backup of directories under /home, /workspace,
  * /tmp, or /var/tmp. The Dockerfile sets HOME=/home/openclaw and symlinks
  * /root/.openclaw and /root/clawd there.
  */
 export async function createSnapshot(sandbox: Sandbox, bucket: R2Bucket): Promise<BackupHandle> {
-  // Delete previous backup objects from R2
   const previousHandle = await getStoredHandle(bucket);
   if (previousHandle) {
-    await bucket.delete(`backups/${previousHandle.id}/data.sqsh`);
-    await bucket.delete(`backups/${previousHandle.id}/meta.json`);
+    const localMarker = await readLocalRestoreMarker(sandbox);
+    if (localMarker?.backupId !== previousHandle.id) {
+      throw new Error(
+        `Refusing to create snapshot before restoring last backup ${previousHandle.id}. Restart the gateway or load /api/status first, then retry backup.`,
+      );
+    }
   }
 
   // Log directory contents before backup so we can verify what's captured
@@ -139,6 +187,21 @@ export async function createSnapshot(sandbox: Sandbox, bucket: R2Bucket): Promis
   };
 
   await storeHandle(bucket, storedHandle);
+  try {
+    await writeLocalRestoreMarker(sandbox, storedHandle);
+  } catch (markerErr) {
+    console.warn('[persistence] Could not update local restore marker after backup:', markerErr);
+  }
+
+  if (previousHandle && previousHandle.id !== storedHandle.id) {
+    try {
+      await bucket.delete(`backups/${previousHandle.id}/data.sqsh`);
+      await bucket.delete(`backups/${previousHandle.id}/meta.json`);
+    } catch (err) {
+      console.warn(`[persistence] Could not delete previous backup ${previousHandle.id}:`, err);
+    }
+  }
+
   console.log(`[persistence] Backup ${storedHandle.id} created in ${Date.now() - t0}ms`);
   return storedHandle;
 }

@@ -10,6 +10,11 @@ const EXPECTED_MODEL_PATCH_VERSION = 7;
 const EXPECTED_OPENCLAW_MIN_VERSION = '2026.5.12';
 const CURRENT_START_SCRIPT_PATH = '/tmp/moltworker-start-openclaw-current.sh';
 
+export interface EnsureGatewayOptions {
+  waitForReady?: boolean;
+  onContainerReplaced?: () => Promise<void>;
+}
+
 export function isProcessNotFoundError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return (
@@ -154,6 +159,7 @@ export async function isGatewayModelConfigCurrent(sandbox: Sandbox): Promise<boo
 async function replaceStaleGatewayContainer(
   sandbox: Sandbox,
   process: Process | null,
+  options?: EnsureGatewayOptions,
 ): Promise<void> {
   console.log('Replacing stale gateway container so the latest image startup script runs...');
   if (process) {
@@ -168,6 +174,9 @@ async function replaceStaleGatewayContainer(
     await sandbox.destroy();
   } catch (destroyError) {
     console.log('Failed to destroy stale gateway container after killing process:', destroyError);
+  }
+  if (options?.onContainerReplaced) {
+    await options.onContainerReplaced();
   }
 }
 
@@ -235,7 +244,7 @@ export async function findExistingGatewayProcess(sandbox: Sandbox): Promise<Proc
 export async function ensureGateway(
   sandbox: Sandbox,
   env: OpenClawEnv,
-  options?: { waitForReady?: boolean },
+  options?: EnsureGatewayOptions,
 ): Promise<Process | null> {
   const waitForReady = options?.waitForReady !== false;
   // Check if gateway is already running or starting
@@ -247,13 +256,13 @@ export async function ensureGateway(
           const versionCurrent = await isOpenClawRuntimeVersionCurrent(sandbox);
           if (!versionCurrent) {
             console.log('Existing gateway OpenClaw runtime is stale, replacing container...');
-            await replaceStaleGatewayContainer(sandbox, existingProcess);
+            await replaceStaleGatewayContainer(sandbox, existingProcess, options);
             return ensureGateway(sandbox, env, options);
           }
           const configCurrent = await isGatewayModelConfigCurrent(sandbox);
           if (!configCurrent) {
             console.log('Existing gateway model config is stale, replacing container...');
-            await replaceStaleGatewayContainer(sandbox, existingProcess);
+            await replaceStaleGatewayContainer(sandbox, existingProcess, options);
             return ensureGateway(sandbox, env, options);
           }
         } else {
@@ -287,13 +296,13 @@ export async function ensureGateway(
       const versionCurrent = await isOpenClawRuntimeVersionCurrent(sandbox);
       if (!versionCurrent) {
         console.log('Reachable gateway OpenClaw runtime is stale, replacing container...');
-        await replaceStaleGatewayContainer(sandbox, existingProcess);
+        await replaceStaleGatewayContainer(sandbox, existingProcess, options);
         return ensureGateway(sandbox, env, options);
       }
       const configCurrent = await isGatewayModelConfigCurrent(sandbox);
       if (!configCurrent) {
         console.log('Reachable gateway model config is stale, replacing container...');
-        await replaceStaleGatewayContainer(sandbox, existingProcess);
+        await replaceStaleGatewayContainer(sandbox, existingProcess, options);
         return ensureGateway(sandbox, env, options);
       }
       return existingProcess;
@@ -306,7 +315,7 @@ export async function ensureGateway(
             console.log(
               'Existing process handle disappeared with stale gateway, replacing container...',
             );
-            await replaceStaleGatewayContainer(sandbox, null);
+            await replaceStaleGatewayContainer(sandbox, null, options);
             return ensureGateway(sandbox, env, options);
           }
         } catch (verifyError) {
@@ -337,13 +346,13 @@ export async function ensureGateway(
         const versionCurrent = await isOpenClawRuntimeVersionCurrent(sandbox);
         if (!versionCurrent) {
           console.log('Undetected gateway OpenClaw runtime is stale, replacing container...');
-          await replaceStaleGatewayContainer(sandbox, null);
+          await replaceStaleGatewayContainer(sandbox, null, options);
           return ensureGateway(sandbox, env, options);
         }
         const configCurrent = await isGatewayModelConfigCurrent(sandbox);
         if (!configCurrent) {
           console.log('Undetected gateway has stale model config, replacing container...');
-          await replaceStaleGatewayContainer(sandbox, null);
+          await replaceStaleGatewayContainer(sandbox, null, options);
           return ensureGateway(sandbox, env, options);
         }
       } catch (e) {

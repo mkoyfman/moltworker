@@ -7,7 +7,7 @@ import {
   isProcessNotFoundError,
   killGateway,
 } from '../gateway';
-import { restoreIfNeeded } from '../persistence';
+import { restoreAfterSandboxReplacement, restoreIfNeeded } from '../persistence';
 
 const STUCK_GATEWAY_RESTART_AFTER_MS = 45_000;
 
@@ -98,6 +98,8 @@ publicRoutes.get('/logo-small.png', (c) => {
 // GET /api/status - Public health check for gateway status (no auth required)
 publicRoutes.get('/api/status', async (c) => {
   const sandbox = c.get('sandbox');
+  const restoreAfterReplacement = () =>
+    restoreAfterSandboxReplacement(sandbox, c.env.BACKUP_BUCKET);
 
   try {
     let process = await findExistingGatewayProcess(sandbox);
@@ -122,7 +124,10 @@ publicRoutes.get('/api/status', async (c) => {
       // the process and check if the port is up.
       console.log('[api/status] No process found, starting gateway...');
       try {
-        const started = await ensureGateway(sandbox, c.env, { waitForReady: false });
+        const started = await ensureGateway(sandbox, c.env, {
+          waitForReady: false,
+          onContainerReplaced: restoreAfterReplacement,
+        });
         if (started) {
           const diagnostics = await getProcessDiagnostics(started, 3000);
           if (diagnostics.processStatus === 'not_found') {
@@ -165,7 +170,10 @@ publicRoutes.get('/api/status', async (c) => {
 
     // Process exists. ensureGateway performs a cheap config drift check and
     // restarts old containers that still point at Claude after a deploy.
-    process = await ensureGateway(sandbox, c.env, { waitForReady: false });
+    process = await ensureGateway(sandbox, c.env, {
+      waitForReady: false,
+      onContainerReplaced: restoreAfterReplacement,
+    });
     if (!process) {
       return c.json({ ok: false, status: 'starting', restoreError: null });
     }
@@ -214,7 +222,10 @@ publicRoutes.get('/api/status', async (c) => {
           restoreError = err instanceof Error ? err.message : String(err);
           console.error('[api/status] Restore after stuck gateway kill failed:', restoreError);
         }
-        const restarted = await ensureGateway(sandbox, c.env, { waitForReady: false });
+        const restarted = await ensureGateway(sandbox, c.env, {
+          waitForReady: false,
+          onContainerReplaced: restoreAfterReplacement,
+        });
         return c.json({
           ok: false,
           status: 'restarted',
