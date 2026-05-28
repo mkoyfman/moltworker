@@ -149,7 +149,7 @@ publicRoutes.get('/api/status', async (c) => {
           onContainerReplaced: signalRestoreAfterReplacement,
         });
         if (started) {
-          const diagnostics = await getProcessDiagnostics(started, 3000);
+          const diagnostics = await getProcessDiagnostics(started, 8000);
           if (diagnostics.processStatus === 'not_found') {
             const refreshed = await findExistingGatewayProcess(sandbox);
             if (refreshed) {
