@@ -1,8 +1,7 @@
 import { getSandbox } from '@cloudflare/sandbox';
 import type { OpenClawEnv } from '../types';
 import { buildSandboxOptions } from '../index';
-import { ensureGateway } from '../gateway';
-import { restoreIfNeeded, signalRestoreNeeded } from '../persistence';
+import { ensureGatewayLifecycle } from '../gateway';
 import { shouldWakeContainer, DEFAULT_LEAD_TIME_MS, CRON_STORE_R2_KEY } from './wake';
 
 /**
@@ -39,9 +38,10 @@ export async function handleScheduled(env: OpenClawEnv): Promise<void> {
   console.log(`[CRON] Cron job due in ${deltaMinutes}m, waking container`);
 
   const sandbox = getSandbox(env.Sandbox, 'openclaw', buildSandboxOptions(env));
-  await restoreIfNeeded(sandbox, env.BACKUP_BUCKET);
-  await ensureGateway(sandbox, env, {
-    onContainerReplaced: () => signalRestoreNeeded(env.BACKUP_BUCKET),
+  const gateway = await ensureGatewayLifecycle(sandbox, env, {
+    waitForReady: true,
+    readinessTimeoutMs: 30_000,
   });
+  if (!gateway.ok) throw new Error(`Gateway wake failed: ${gateway.status}`);
   console.log('[CRON] Container woken successfully');
 }

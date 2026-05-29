@@ -26,10 +26,9 @@ import { getSandbox, Sandbox, type SandboxOptions } from '@cloudflare/sandbox';
 import type { AppEnv, OpenClawEnv } from './types';
 import { GATEWAY_PORT } from './config';
 import { createAccessMiddleware } from './auth';
-import { ensureGateway, findExistingGatewayProcess, killGateway } from './gateway';
+import { ensureGatewayLifecycle, killGateway, type EnsureGatewayLifecycleOptions } from './gateway';
 import { publicRoutes, api, adminUi, debug, cdp } from './routes';
 import { redactSensitiveParams } from './utils/logging';
-import { getRestoreStatus, restoreIfNeeded, signalRestoreNeeded } from './persistence';
 import { handleScheduled } from './cron/handler';
 import loadingPageHtml from './assets/loading.html';
 import configErrorHtml from './assets/config-error.html';
@@ -164,10 +163,10 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// Middleware: Initialize sandbox stub and restore backup if available.
+// Middleware: Initialize sandbox stub.
 // Note: we intentionally do NOT call sandbox.start() here. The Sandbox SDK's
-// containerFetch() auto-starts the container when needed, and the catch-all
-// proxy route uses ensureGateway() which handles startup explicitly.
+// containerFetch() auto-starts the container when needed, and gateway lifecycle
+// paths handle restore, startup, readiness, and stale-process recovery explicitly.
 // Adding start() here would add an unnecessary RPC call on every request,
 // including static assets and health checks that don't need the container.
 app.use('*', async (c, next) => {
@@ -274,49 +273,23 @@ app.all('*', async (c) => {
   const sandbox = c.get('sandbox');
   const request = c.req.raw;
   const url = new URL(request.url);
-  const signalRestoreAfterReplacement = () => signalRestoreNeeded(c.env.BACKUP_BUCKET);
-  const forceRestoreMissingBackup = async (source: string) => {
-    const restoreStatus = await getRestoreStatus(sandbox, c.env.BACKUP_BUCKET);
-    if (!restoreStatus.hasBackup || restoreStatus.restored) return false;
-
-    console.log(`[${source}] Sandbox has not restored latest backup; restoring before gateway use`);
-    await killGateway(sandbox);
-    await restoreIfNeeded(sandbox, c.env.BACKUP_BUCKET);
-    return true;
-  };
+  const ensureGatewayForProxy = (options: EnsureGatewayLifecycleOptions = {}) =>
+    ensureGatewayLifecycle(sandbox, c.env, options);
 
   console.log('[PROXY] Handling request:', url.pathname);
 
   const isWebSocketRequest = request.headers.get('Upgrade')?.toLowerCase() === 'websocket';
   const acceptsHtml = request.headers.get('Accept')?.includes('text/html');
 
-  // For browser HTML requests, check if the gateway is running before proxying.
-  // If not running, serve the loading page immediately. The loading page polls
-  // /api/status which handles restore + gateway start. We use a very short timeout
-  // (3s) on findExistingGatewayProcess to avoid blocking — if it doesn't respond,
-  // we assume the gateway isn't ready.
+  // For browser HTML requests, avoid spawning work directly from the page load.
+  // The loading page polls /api/status, which owns restore + startup. If the
+  // lifecycle helper already sees a ready gateway, proxy immediately.
   if (!isWebSocketRequest && acceptsHtml) {
-    let gatewayReady = false;
-    try {
-      await forceRestoreMissingBackup('PROXY');
-      const proc = await Promise.race([
-        findExistingGatewayProcess(sandbox),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3_000)),
-      ]);
-      if (proc !== null && proc.status === 'running') {
-        // ensureGateway performs config drift detection. If a deployed Worker
-        // update changed start-openclaw.sh but the old container process is
-        // still alive, this restarts it before serving the Control UI.
-        const currentProc = await ensureGateway(sandbox, c.env, {
-          waitForReady: false,
-          onContainerReplaced: signalRestoreAfterReplacement,
-        });
-        gatewayReady = currentProc !== null && currentProc.status === 'running';
-      }
-    } catch {
-      // Treat as not ready
-    }
-    if (!gatewayReady) {
+    const gateway = await ensureGatewayForProxy({
+      startIfNeeded: false,
+      readinessTimeoutMs: 500,
+    });
+    if (!gateway.ok) {
       console.log('[PROXY] Gateway not ready for HTML request, serving loading page');
       return c.html(loadingPageHtml);
     }
@@ -325,17 +298,13 @@ app.all('*', async (c) => {
   // For non-WebSocket, non-HTML requests (API calls, static assets), we need
   // the gateway to be running. Restore first, then start.
   if (!isWebSocketRequest && !acceptsHtml) {
-    try {
-      await restoreIfNeeded(sandbox, c.env.BACKUP_BUCKET);
-    } catch {
-      // non-fatal
-    }
-    try {
-      await ensureGateway(sandbox, c.env, { onContainerReplaced: signalRestoreAfterReplacement });
-    } catch (error) {
-      console.error('[PROXY] Failed to start gateway:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      return c.json({ error: 'Gateway not ready', details: errorMessage }, 503);
+    const gateway = await ensureGatewayForProxy({
+      waitForReady: true,
+      readinessTimeoutMs: 5000,
+    });
+    if (!gateway.ok) {
+      console.error('[PROXY] Gateway not ready:', gateway);
+      return c.json({ error: 'Gateway not ready', details: gateway.error ?? gateway.status }, 503);
     }
   }
 
@@ -364,18 +333,12 @@ app.all('*', async (c) => {
     }
     wsRequest = withGatewayLocalOrigin(wsRequest);
 
-    try {
-      await forceRestoreMissingBackup('WS');
-      const existingProcess = await findExistingGatewayProcess(sandbox);
-      if (!existingProcess) {
-        await restoreIfNeeded(sandbox, c.env.BACKUP_BUCKET);
-      }
-      await ensureGateway(sandbox, c.env, {
-        waitForReady: false,
-        onContainerReplaced: signalRestoreAfterReplacement,
-      });
-    } catch (err) {
-      console.error('[WS] Failed to verify gateway before WebSocket proxy:', err);
+    const gateway = await ensureGatewayForProxy({
+      waitForReady: true,
+      readinessTimeoutMs: 5000,
+    });
+    if (!gateway.ok) {
+      console.error('[WS] Gateway not ready before WebSocket proxy:', gateway);
     }
 
     // Get WebSocket connection to the container (with retry on crash)
@@ -386,14 +349,12 @@ app.all('*', async (c) => {
       if (isGatewayCrashedError(err)) {
         console.log('[WS] Gateway crashed, attempting restore + restart and retry...');
         await killGateway(sandbox);
-        try {
-          await restoreIfNeeded(sandbox, c.env.BACKUP_BUCKET);
-        } catch {
-          // non-fatal
-        }
-        await ensureGateway(sandbox, c.env, {
-          onContainerReplaced: signalRestoreAfterReplacement,
+        const recovered = await ensureGatewayForProxy({
+          waitForReady: true,
+          readinessTimeoutMs: 10_000,
         });
+        if (!recovered.ok)
+          return new Response('Gateway crashed and recovery failed', { status: 503 });
         try {
           containerResponse = await sandbox.wsConnect(wsRequest, GATEWAY_PORT);
         } catch (retryErr) {
@@ -542,12 +503,14 @@ app.all('*', async (c) => {
     if (isGatewayCrashedError(err)) {
       console.log('[HTTP] Gateway crashed, attempting restore + restart and retry...');
       await killGateway(sandbox);
-      try {
-        await restoreIfNeeded(sandbox, c.env.BACKUP_BUCKET);
-      } catch {
-        // non-fatal
+      const recovered = await ensureGatewayForProxy({
+        waitForReady: true,
+        readinessTimeoutMs: 10_000,
+      });
+      if (!recovered.ok) {
+        if (acceptsHtml) return c.html(loadingPageHtml);
+        return c.json({ error: 'Gateway crashed and recovery failed' }, 503);
       }
-      await ensureGateway(sandbox, c.env, { onContainerReplaced: signalRestoreAfterReplacement });
       try {
         httpResponse = await sandbox.containerFetch(gatewayRequest, GATEWAY_PORT);
       } catch (retryErr) {

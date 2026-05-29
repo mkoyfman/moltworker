@@ -1,12 +1,16 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
 import { createAccessMiddleware } from '../auth';
-import { ensureGateway, findExistingGatewayProcess, killGateway, waitForProcess } from '../gateway';
+import {
+  ensureGatewayLifecycle,
+  findExistingGatewayProcess,
+  killGateway,
+  waitForProcess,
+} from '../gateway';
 import {
   createSnapshot,
   getLastBackupInfo,
   getRestoreStatus,
-  restoreIfNeeded,
   signalRestoreNeeded,
 } from '../persistence';
 
@@ -50,24 +54,12 @@ async function restoreThenEnsureGateway(
   sandbox: AppEnv['Variables']['sandbox'],
   env: AppEnv['Bindings'],
 ) {
-  const existingProcess = await findExistingGatewayProcess(sandbox);
-  const restoreStatus = await getRestoreStatus(sandbox, env.BACKUP_BUCKET);
-  if (restoreStatus.hasBackup && !restoreStatus.restored) {
-    console.log(
-      '[Admin API] Sandbox has not restored latest backup; restoring before gateway start',
-    );
-    if (existingProcess) await killGateway(sandbox);
-    await restoreIfNeeded(sandbox, env.BACKUP_BUCKET);
-  } else if (!existingProcess) {
-    try {
-      await restoreIfNeeded(sandbox, env.BACKUP_BUCKET);
-    } catch (err) {
-      console.error('[Admin API] Restore before gateway start failed:', err);
-    }
-  }
-  return ensureGateway(sandbox, env, {
-    onContainerReplaced: () => signalRestoreNeeded(env.BACKUP_BUCKET),
+  const gateway = await ensureGatewayLifecycle(sandbox, env, {
+    waitForReady: true,
+    readinessTimeoutMs: 30_000,
   });
+  if (!gateway.ok) throw new Error(`Gateway not ready: ${gateway.error ?? gateway.status}`);
+  return gateway;
 }
 
 async function snapshotBestEffort(

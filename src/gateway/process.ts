@@ -60,7 +60,7 @@ export async function killGateway(sandbox: Sandbox): Promise<void> {
   // Clean up lock files that prevent restart
   try {
     await sandbox.exec(
-      'rm -f /tmp/openclaw-gateway.lock /root/.openclaw/gateway.lock /home/openclaw/.openclaw/gateway.lock 2>/dev/null; true',
+      'rm -f /tmp/openclaw-gateway.lock /tmp/openclaw-*/gateway.*.lock /root/.openclaw/gateway.lock /home/openclaw/.openclaw/gateway.lock 2>/dev/null; true',
     );
   } catch {
     // ignore
