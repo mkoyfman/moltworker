@@ -4,6 +4,7 @@ import { GATEWAY_PORT } from '../config';
 import {
   ensureGateway,
   findExistingGatewayProcess,
+  isGatewayPortOpen,
   isProcessNotFoundError,
   killGateway,
 } from '../gateway';
@@ -161,8 +162,28 @@ publicRoutes.get('/api/status', async (c) => {
                 processStatus: refreshed.status,
               });
             }
+            if (await isGatewayPortOpen(sandbox)) {
+              return c.json({
+                ok: true,
+                status: 'running',
+                processId: diagnostics.processId,
+                processStatus: diagnostics.processStatus,
+                processAgeMs: diagnostics.processAgeMs,
+                diagnostics,
+              });
+            }
           }
           if (diagnostics.processStatus !== 'running' && diagnostics.processStatus !== 'starting') {
+            if (await isGatewayPortOpen(sandbox)) {
+              return c.json({
+                ok: true,
+                status: 'running',
+                processId: diagnostics.processId,
+                processStatus: diagnostics.processStatus,
+                processAgeMs: diagnostics.processAgeMs,
+                diagnostics,
+              });
+            }
             console.error('[api/status] Gateway exited during startup:', diagnostics);
             return c.json({
               ok: false,
@@ -187,6 +208,9 @@ publicRoutes.get('/api/status', async (c) => {
         console.error('[api/status] Gateway start failed:', msg);
         return c.json({ ok: false, status: 'start_failed', error: msg, restoreError });
       }
+      if (await isGatewayPortOpen(sandbox)) {
+        return c.json({ ok: true, status: 'running', restoreError });
+      }
       return c.json({ ok: false, status: 'starting', restoreError });
     }
 
@@ -197,6 +221,9 @@ publicRoutes.get('/api/status', async (c) => {
       onContainerReplaced: signalRestoreAfterReplacement,
     });
     if (!process) {
+      if (await isGatewayPortOpen(sandbox)) {
+        return c.json({ ok: true, status: 'running' });
+      }
       return c.json({ ok: false, status: 'starting', restoreError: null });
     }
 
@@ -220,6 +247,16 @@ publicRoutes.get('/api/status', async (c) => {
       }
       const diagnostics = await getProcessDiagnostics(process);
       if (diagnostics.processStatus !== 'running' && diagnostics.processStatus !== 'starting') {
+        if (await isGatewayPortOpen(sandbox)) {
+          return c.json({
+            ok: true,
+            status: 'running',
+            processId: diagnostics.processId,
+            processStatus: diagnostics.processStatus,
+            processAgeMs: diagnostics.processAgeMs,
+            diagnostics,
+          });
+        }
         return c.json({
           ok: false,
           status: 'start_failed',

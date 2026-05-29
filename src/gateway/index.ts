@@ -1,6 +1,7 @@
 export {
   ensureGateway,
   findExistingGatewayProcess,
+  isGatewayPortOpen,
   isGatewayModelConfigCurrent,
   isProcessNotFoundError,
   killGateway,
