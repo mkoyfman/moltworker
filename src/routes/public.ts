@@ -193,6 +193,30 @@ publicRoutes.get('/api/status', async (c) => {
               diagnostics,
             });
           }
+          try {
+            await started.waitForPort(GATEWAY_PORT, { mode: 'tcp', timeout: 1000 });
+            return c.json({
+              ok: true,
+              status: 'running',
+              restoreError,
+              processId: diagnostics.processId,
+              processStatus: diagnostics.processStatus,
+              processAgeMs: diagnostics.processAgeMs,
+              diagnostics,
+            });
+          } catch {
+            if (await isGatewayPortOpen(sandbox)) {
+              return c.json({
+                ok: true,
+                status: 'running',
+                restoreError,
+                processId: diagnostics.processId,
+                processStatus: diagnostics.processStatus,
+                processAgeMs: diagnostics.processAgeMs,
+                diagnostics,
+              });
+            }
+          }
           return c.json({
             ok: false,
             status: 'starting',
