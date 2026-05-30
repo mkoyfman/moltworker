@@ -33,7 +33,7 @@ echo "Config directory: $CONFIG_DIR"
 
 mkdir -p "$CONFIG_DIR" "$OPENCLAW_AGENT_DIR" "$WORKSPACE_DIR" "$SKILLS_DIR"
 
-TARGET_OPENCLAW_VERSION="${OPENCLAW_VERSION_TARGET:-2026.5.27}"
+TARGET_OPENCLAW_VERSION="${OPENCLAW_VERSION_TARGET:-2026.3.23-2}"
 CURRENT_OPENCLAW_VERSION="$(openclaw --version 2>&1 || true)"
 if ! node - "$CURRENT_OPENCLAW_VERSION" "$TARGET_OPENCLAW_VERSION" << 'EOFVERSION'
 const [actualOutput, target] = process.argv.slice(2);
@@ -62,10 +62,10 @@ function compare(leftVersion, rightVersion) {
 }
 
 const actual = parseVersion(actualOutput);
-process.exit(actual && compare(actual, target) >= 0 ? 0 : 1);
+process.exit(actual && compare(actual, target) === 0 ? 0 : 1);
 EOFVERSION
 then
-    echo "OpenClaw version is stale (${CURRENT_OPENCLAW_VERSION:-missing}); installing ${TARGET_OPENCLAW_VERSION}..."
+    echo "OpenClaw version is not the expected runtime (${CURRENT_OPENCLAW_VERSION:-missing}); installing ${TARGET_OPENCLAW_VERSION}..."
     npm install -g "openclaw@${TARGET_OPENCLAW_VERSION}"
 else
     echo "OpenClaw version is current: ${CURRENT_OPENCLAW_VERSION}"

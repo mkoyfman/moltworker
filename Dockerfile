@@ -21,11 +21,11 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && npm --version
 
 # Install OpenClaw
-# Use the current latest release. Bump OPENCLAW_CACHE_BUST whenever the
-# desired OpenClaw version changes so the install layer cannot reuse an old
-# globally-installed binary from Docker cache.
-ARG OPENCLAW_VERSION=2026.5.27
-ARG OPENCLAW_CACHE_BUST=2026-05-28-openclaw-2026.5.27
+# Track the version used by the official Cloudflare moltworker image. Newer
+# OpenClaw 2026.5.x builds are currently killed during gateway startup inside
+# the Cloudflare sandbox before the HTTP port is ready.
+ARG OPENCLAW_VERSION=2026.3.23-2
+ARG OPENCLAW_CACHE_BUST=2026-05-30-openclaw-2026.3.23-2-official-runtime
 RUN echo "Installing OpenClaw ${OPENCLAW_VERSION} (${OPENCLAW_CACHE_BUST})" \
     && npm install -g openclaw@${OPENCLAW_VERSION} \
     && openclaw --version

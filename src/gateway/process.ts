@@ -7,7 +7,7 @@ import startOpenClawScript from '../../start-openclaw.sh?raw';
 const EXPECTED_MODEL_REF = 'cf-ai-gw-workers-ai/@cf/moonshotai/kimi-k2.6';
 const EXPECTED_PROVIDER_ID = 'cf-ai-gw-workers-ai';
 const EXPECTED_MODEL_PATCH_VERSION = 9;
-const EXPECTED_OPENCLAW_MIN_VERSION = '2026.5.27';
+const EXPECTED_OPENCLAW_RUNTIME_VERSION = '2026.3.23-2';
 const CURRENT_START_SCRIPT_PATH = '/tmp/moltworker-start-openclaw-current.sh';
 
 export interface EnsureGatewayOptions {
@@ -80,16 +80,17 @@ export async function isGatewayPortOpen(sandbox: Sandbox): Promise<boolean> {
 }
 
 /**
- * Check the installed OpenClaw version in the sandbox. A Worker deploy can
- * update code while a warm sandbox container keeps the older image/filesystem,
- * so version drift must force a container replacement too.
+ * Check the installed OpenClaw version in the sandbox. This intentionally
+ * requires the official Cloudflare moltworker runtime version instead of
+ * accepting newer builds; OpenClaw 2026.5.x currently gets SIGKILLed during
+ * gateway startup inside the Cloudflare sandbox before the port is ready.
  */
 export async function isOpenClawRuntimeVersionCurrent(sandbox: Sandbox): Promise<boolean> {
   const result = await sandbox.exec('openclaw --version');
   if (result.exitCode !== 0) return false;
   const actual = parseOpenClawVersion(result.stdout || result.stderr || '');
   if (!actual) return false;
-  return compareOpenClawVersions(actual, EXPECTED_OPENCLAW_MIN_VERSION) >= 0;
+  return compareOpenClawVersions(actual, EXPECTED_OPENCLAW_RUNTIME_VERSION) === 0;
 }
 
 function parseOpenClawVersion(output: string): string | null {
