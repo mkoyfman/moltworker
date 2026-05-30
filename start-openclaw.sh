@@ -90,8 +90,7 @@ const configPath = process.env.OPENCLAW_CONFIG_PATH || path.join(configDir, 'ope
 const moltworkerStatePath = path.join(configDir, 'moltworker-state.json');
 const workspaceDir = process.env.OPENCLAW_WORKSPACE_DIR || path.join(process.env.HOME || '/home/openclaw', 'clawd');
 const DEFAULT_CF_AI_GATEWAY_MODEL = 'workers-ai/@cf/moonshotai/kimi-k2.6';
-const MODEL_PATCH_VERSION = 8;
-const DISABLED_SIDECAR_PLUGINS = ['browser', 'canvas', 'file-transfer', 'phone-control', 'talk-voice'];
+const MODEL_PATCH_VERSION = 9;
 
 console.log('Patching config at:', configPath);
 let config = {};
@@ -111,32 +110,6 @@ config.session = config.session || {};
 config.session.dmScope = config.session.dmScope || 'per-channel-peer';
 config.tools = config.tools || {};
 config.tools.profile = config.tools.profile || 'coding';
-config.browser = config.browser || {};
-config.browser.enabled = false;
-config.browser.evaluateEnabled = false;
-config.plugins = config.plugins || {};
-config.plugins.entries = config.plugins.entries || {};
-config.plugins.deny = Array.isArray(config.plugins.deny) ? config.plugins.deny : [];
-config.plugins.deny = config.plugins.deny.filter((pluginId) => pluginId !== 'device-pair' && pluginId !== 'memory-core');
-for (const pluginId of DISABLED_SIDECAR_PLUGINS) {
-    config.plugins.entries[pluginId] = {
-        ...(config.plugins.entries[pluginId] || {}),
-        enabled: false,
-    };
-    if (!config.plugins.deny.includes(pluginId)) config.plugins.deny.push(pluginId);
-}
-config.plugins.entries['device-pair'] = {
-    ...(config.plugins.entries['device-pair'] || {}),
-    enabled: true,
-};
-config.plugins.entries['memory-core'] = {
-    ...(config.plugins.entries['memory-core'] || {}),
-    enabled: true,
-};
-config.plugins.slots = {
-    ...(config.plugins.slots || {}),
-    memory: 'memory-core',
-};
 delete config.moltworker;
 
 // Gateway configuration
