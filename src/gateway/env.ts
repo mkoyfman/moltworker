@@ -15,9 +15,11 @@ export function buildEnvVars(env: OpenClawEnv): Record<string, string> {
     PI_CODING_AGENT_DIR: '/home/openclaw/.openclaw/agents/main/agent',
     OPENCLAW_GATEWAY_STARTUP_TRACE: '1',
     OPENCLAW_ALLOW_MULTI_GATEWAY: '1',
+    OPENCLAW_NO_RESPAWN: '1',
     OPENCLAW_SKIP_STARTUP_MODEL_PREWARM: '1',
     OPENCLAW_SKIP_BROWSER_CONTROL_SERVER: '1',
     OPENCLAW_SKIP_ACPX_RUNTIME_PROBE: '1',
+    OPENCLAW_DISABLE_BONJOUR: '1',
   };
   const hasCloudflareAiGateway =
     Boolean(env.CLOUDFLARE_AI_GATEWAY_API_KEY) &&

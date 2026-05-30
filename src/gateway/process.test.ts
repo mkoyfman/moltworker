@@ -252,8 +252,10 @@ describe('isGatewayModelConfigCurrent', () => {
     expect(execMock.mock.calls[0][0]).toContain('/home/openclaw/.openclaw');
     expect(execMock.mock.calls[0][0]).toContain('@cf/moonshotai/kimi-k2.6');
     expect(execMock.mock.calls[0][0]).toContain('cf-ai-gw-workers-ai');
-    expect(execMock.mock.calls[0][0]).toContain('expectedPatchVersion = 7');
+    expect(execMock.mock.calls[0][0]).toContain('expectedPatchVersion = 8');
     expect(execMock.mock.calls[0][0]).toContain('moltworker-state.json');
+    expect(execMock.mock.calls[0][0]).toContain('disabledSidecars');
+    expect(execMock.mock.calls[0][0]).toContain('config.browser?.enabled === false');
     expect(execMock.mock.calls[0][0]).toContain(
       'findFilesNamed(configDir, \\"auth-profiles.json\\")',
     );
