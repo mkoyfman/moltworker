@@ -155,11 +155,13 @@ function runningResult(
   process: Process | null,
   diagnostics?: GatewayDiagnostics,
   restoreError: string | null = null,
+  restoreStatus?: RestoreStatus,
 ): GatewayLifecycleResult {
   return {
     ok: true,
     status: 'running',
     restoreError,
+    ...(restoreStatus ? { restoreStatus } : {}),
     processId: diagnostics?.processId ?? process?.id ?? null,
     processStatus: diagnostics?.processStatus ?? process?.status ?? null,
     processAgeMs: diagnostics?.processAgeMs ?? (process ? getProcessAgeMs(process) : null),
@@ -218,6 +220,7 @@ export async function ensureGatewayLifecycle(
   const diagnosticsDelayMs = options.diagnosticsDelayMs ?? 0;
   const restartStuckAfterMs = options.restartStuckAfterMs;
   let restoreError: string | null = null;
+  let restoreStatus: RestoreStatus | undefined;
 
   let process = await findExistingGatewayProcess(sandbox);
 
@@ -225,6 +228,7 @@ export async function ensureGatewayLifecycle(
     const restored = await restoreGatewayStateIfNeeded(sandbox, env.BACKUP_BUCKET, process);
     process = restored.process;
     restoreError = restored.restoreError;
+    restoreStatus = restored.restoreStatus;
     if (restored.failed) {
       return {
         ok: false,
@@ -236,19 +240,20 @@ export async function ensureGatewayLifecycle(
   }
 
   if (await isGatewayReady(sandbox, process, Math.min(readinessTimeoutMs, 1000))) {
-    return runningResult(process, undefined, restoreError);
+    return runningResult(process, undefined, restoreError, restoreStatus);
   }
 
   if (!startIfNeeded) {
     const diagnostics = process ? await getGatewayProcessDiagnostics(process) : undefined;
     if (diagnosticsIndicateGatewayReady(diagnostics)) {
-      return runningResult(process, diagnostics, restoreError);
+      return runningResult(process, diagnostics, restoreError, restoreStatus);
     }
 
     return {
       ok: false,
       status: diagnostics ? 'not_responding' : 'starting',
       restoreError,
+      ...(restoreStatus ? { restoreStatus } : {}),
       processId: diagnostics?.processId ?? process?.id ?? null,
       processStatus: diagnostics?.processStatus ?? process?.status ?? null,
       processAgeMs: diagnostics?.processAgeMs ?? (process ? getProcessAgeMs(process) : null),
@@ -264,15 +269,21 @@ export async function ensureGatewayLifecycle(
     process = ensured ?? (await findExistingGatewayProcess(sandbox));
   } catch (err) {
     if (await isGatewayReady(sandbox, process, 1000)) {
-      return runningResult(process, undefined, restoreError);
+      return runningResult(process, undefined, restoreError, restoreStatus);
     }
     const error = err instanceof Error ? err.message : String(err);
     console.error('[gateway/lifecycle] Gateway start failed:', error);
-    return { ok: false, status: 'start_failed', restoreError, error };
+    return {
+      ok: false,
+      status: 'start_failed',
+      restoreError,
+      ...(restoreStatus ? { restoreStatus } : {}),
+      error,
+    };
   }
 
   if (await isGatewayReady(sandbox, process, readinessTimeoutMs)) {
-    return runningResult(process, undefined, restoreError);
+    return runningResult(process, undefined, restoreError, restoreStatus);
   }
 
   const diagnostics = process
@@ -280,11 +291,11 @@ export async function ensureGatewayLifecycle(
     : undefined;
 
   if (await isGatewayReady(sandbox, process, 1000)) {
-    return runningResult(process, diagnostics, restoreError);
+    return runningResult(process, diagnostics, restoreError, restoreStatus);
   }
 
   if (diagnosticsIndicateGatewayReady(diagnostics)) {
-    return runningResult(process, diagnostics, restoreError);
+    return runningResult(process, diagnostics, restoreError, restoreStatus);
   }
 
   if (
@@ -297,6 +308,7 @@ export async function ensureGatewayLifecycle(
       status: 'start_failed',
       error: `Gateway exited with status ${diagnostics.processStatus}`,
       restoreError,
+      ...(restoreStatus ? { restoreStatus } : {}),
       diagnostics,
       processId: diagnostics.processId,
       processStatus: diagnostics.processStatus,
@@ -334,6 +346,7 @@ export async function ensureGatewayLifecycle(
       status: 'restarted',
       reason: 'gateway process was running but not listening',
       restoreError: restartRestoreError,
+      ...(restoreStatus ? { restoreStatus } : {}),
       processId: restarted?.id ?? null,
       processStatus: restarted?.status ?? null,
       diagnostics,
@@ -344,6 +357,7 @@ export async function ensureGatewayLifecycle(
     ok: false,
     status: process ? 'not_responding' : 'starting',
     restoreError,
+    ...(restoreStatus ? { restoreStatus } : {}),
     processId: diagnostics?.processId ?? process?.id ?? null,
     processStatus: diagnostics?.processStatus ?? process?.status ?? null,
     processAgeMs: diagnostics?.processAgeMs ?? (process ? getProcessAgeMs(process) : null),

@@ -133,14 +133,15 @@ describe('ensureGatewayLifecycle', () => {
     const started = createLifecycleProcess({ id: 'proc_started' });
     const { sandbox } = createMockSandbox();
     const env = createMockEnv();
-
-    mockFindExistingGatewayProcess.mockResolvedValue(null);
-    mockGetRestoreStatus.mockResolvedValue({
+    const restoreStatus = {
       hasBackup: true,
       backupId: 'backup-1',
       restored: false,
       localBackupId: null,
-    });
+    };
+
+    mockFindExistingGatewayProcess.mockResolvedValue(null);
+    mockGetRestoreStatus.mockResolvedValue(restoreStatus);
     mockEnsureGateway.mockResolvedValue(started);
 
     const result = await ensureGatewayLifecycle(sandbox, env, {
@@ -158,6 +159,7 @@ describe('ensureGatewayLifecycle', () => {
       ok: true,
       status: 'running',
       processId: started.id,
+      restoreStatus,
     });
   });
 
