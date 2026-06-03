@@ -12,6 +12,8 @@
 
 set -e
 
+echo "Moltworker start script revision: upstream-onboard-2026-06-03"
+
 if pgrep -f "openclaw gateway|openclaw-gateway" > /dev/null 2>&1; then
     echo "OpenClaw gateway is already running, exiting."
     exit 0

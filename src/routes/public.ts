@@ -4,6 +4,7 @@ import { GATEWAY_PORT } from '../config';
 import { ensureGatewayLifecycle } from '../gateway';
 
 const STUCK_GATEWAY_RESTART_AFTER_MS = 5 * 60_000;
+const WORKER_RUNTIME_REVISION = 'upstream-onboard-2026-06-03';
 
 /**
  * Public routes - NO Cloudflare Access authentication required
@@ -42,11 +43,12 @@ publicRoutes.get('/api/status', async (c) => {
       readinessTimeoutMs: 1000,
       restartStuckAfterMs: STUCK_GATEWAY_RESTART_AFTER_MS,
     });
-    return c.json(result);
+    return c.json({ ...result, workerRuntimeRevision: WORKER_RUNTIME_REVISION });
   } catch (err) {
     return c.json({
       ok: false,
       status: 'error',
+      workerRuntimeRevision: WORKER_RUNTIME_REVISION,
       error: err instanceof Error ? err.message : 'Unknown error',
     });
   }
