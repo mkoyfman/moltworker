@@ -129,6 +129,38 @@ describe('ensureGatewayLifecycle', () => {
     expect(mockEnsureGateway).not.toHaveBeenCalled();
   });
 
+  it('uses the OpenClaw listening log as a readiness fallback when the startup wrapper was killed', async () => {
+    const process = createLifecycleProcess({
+      status: 'failed',
+      exitCode: 137,
+      waitForPort: vi.fn().mockRejectedValue(new Error('Process exited before ready')),
+      getStatus: vi.fn().mockResolvedValue('failed'),
+      getLogs: vi.fn().mockResolvedValue({
+        stdout:
+          '2026-06-02T20:04:20.084+00:00 [gateway] listening on ws://0.0.0.0:18789 (PID 15993)\n',
+        stderr: 'bash: line 25722: 15946 Killed /tmp/moltworker-start-openclaw-current.sh\n',
+      }),
+    });
+    const { sandbox } = createMockSandbox();
+    const env = createMockEnv();
+
+    mockFindExistingGatewayProcess.mockResolvedValue(process);
+
+    const result = await ensureGatewayLifecycle(sandbox, env, {
+      startIfNeeded: false,
+      readinessTimeoutMs: 500,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: 'running',
+      diagnostics: expect.objectContaining({
+        processStatus: 'failed',
+      }),
+    });
+    expect(mockEnsureGateway).not.toHaveBeenCalled();
+  });
+
   it('restores the latest backup before starting a new gateway', async () => {
     const started = createLifecycleProcess({ id: 'proc_started' });
     const { sandbox } = createMockSandbox();

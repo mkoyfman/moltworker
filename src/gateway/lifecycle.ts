@@ -54,7 +54,8 @@ export interface EnsureGatewayLifecycleOptions {
   restartStuckAfterMs?: number;
 }
 
-const GATEWAY_READY_LOG_RE = /(?:^|\n).*\[gateway\]\s+ready\b/;
+const GATEWAY_READY_LOG_RE =
+  /(?:^|\n).*\[gateway\]\s+(?:ready\b|listening on ws:\/\/(?:0\.0\.0\.0|127\.0\.0\.1|localhost):\d+\b)/;
 
 function getProcessAgeMs(process: {
   id: string;
@@ -118,9 +119,6 @@ export async function getGatewayProcessDiagnostics(
 
 function diagnosticsIndicateGatewayReady(diagnostics?: GatewayDiagnostics): boolean {
   if (!diagnostics) return false;
-  if (diagnostics.processStatus !== 'running' && diagnostics.processStatus !== 'starting') {
-    return false;
-  }
 
   return (
     GATEWAY_READY_LOG_RE.test(diagnostics.stdout) || GATEWAY_READY_LOG_RE.test(diagnostics.stderr)
