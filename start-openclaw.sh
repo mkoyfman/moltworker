@@ -1,8 +1,8 @@
 #!/bin/bash
 # Startup script for OpenClaw in Cloudflare Sandbox
 # This script:
-# 1. Ensures OpenClaw is installed at the expected version
-# 2. Writes/patches config from environment variables
+# 1. Runs openclaw onboard --non-interactive to create OpenClaw's baseline config
+# 2. Patches config from environment variables
 # 3. Starts the gateway
 #
 # NOTE: Persistence (backup/restore) is handled by the Sandbox SDK at the
@@ -17,63 +17,44 @@ if pgrep -f "openclaw gateway|openclaw-gateway" > /dev/null 2>&1; then
     exit 0
 fi
 
-HOME_DIR="${HOME:-/home/openclaw}"
-CONFIG_DIR="${OPENCLAW_STATE_DIR:-$HOME_DIR/.openclaw}"
-CONFIG_FILE="${OPENCLAW_CONFIG_PATH:-$CONFIG_DIR/openclaw.json}"
-WORKSPACE_DIR="$HOME_DIR/clawd"
+CONFIG_DIR="/root/.openclaw"
+CONFIG_FILE="$CONFIG_DIR/openclaw.json"
+WORKSPACE_DIR="/root/clawd"
 SKILLS_DIR="$WORKSPACE_DIR/skills"
-export HOME="$HOME_DIR"
 export OPENCLAW_STATE_DIR="$CONFIG_DIR"
 export OPENCLAW_CONFIG_PATH="$CONFIG_FILE"
 export OPENCLAW_AGENT_DIR="${OPENCLAW_AGENT_DIR:-$CONFIG_DIR/agents/main/agent}"
 export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$OPENCLAW_AGENT_DIR}"
 export OPENCLAW_WORKSPACE_DIR="$WORKSPACE_DIR"
 
+openclaw --version
+
 echo "Config directory: $CONFIG_DIR"
 
 mkdir -p "$CONFIG_DIR" "$OPENCLAW_AGENT_DIR" "$WORKSPACE_DIR" "$SKILLS_DIR"
 
-TARGET_OPENCLAW_VERSION="${OPENCLAW_VERSION_TARGET:-2026.3.23-2}"
-CURRENT_OPENCLAW_VERSION="$(openclaw --version 2>&1 || true)"
-if ! node - "$CURRENT_OPENCLAW_VERSION" "$TARGET_OPENCLAW_VERSION" << 'EOFVERSION'
-const [actualOutput, target] = process.argv.slice(2);
-
-function parseVersion(value) {
-    const match = String(value || '').match(/(\d{4}\.\d+\.\d+(?:-\d+)?)/);
-    return match ? match[1] : null;
-}
-
-function parts(version) {
-    return version.split(/[.-]/).map((part) => {
-        const parsed = Number.parseInt(part, 10);
-        return Number.isFinite(parsed) ? parsed : 0;
-    });
-}
-
-function compare(leftVersion, rightVersion) {
-    const left = parts(leftVersion);
-    const right = parts(rightVersion);
-    const max = Math.max(left.length, right.length);
-    for (let i = 0; i < max; i++) {
-        const delta = (left[i] || 0) - (right[i] || 0);
-        if (delta !== 0) return delta;
-    }
-    return 0;
-}
-
-const actual = parseVersion(actualOutput);
-process.exit(actual && compare(actual, target) === 0 ? 0 : 1);
-EOFVERSION
-then
-    echo "OpenClaw version is not the expected runtime (${CURRENT_OPENCLAW_VERSION:-missing}); installing ${TARGET_OPENCLAW_VERSION}..."
-    npm install -g "openclaw@${TARGET_OPENCLAW_VERSION}"
-else
-    echo "OpenClaw version is current: ${CURRENT_OPENCLAW_VERSION}"
-fi
-openclaw --version
-
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "No existing config found; creating Moltworker-managed config"
+    echo "No existing config found, running openclaw onboard..."
+
+    AUTH_ARGS=""
+    if [ -n "$CLOUDFLARE_AI_GATEWAY_API_KEY" ] && [ -n "$CF_AI_GATEWAY_ACCOUNT_ID" ] && [ -n "$CF_AI_GATEWAY_GATEWAY_ID" ]; then
+        AUTH_ARGS="--auth-choice cloudflare-ai-gateway-api-key --cloudflare-ai-gateway-account-id $CF_AI_GATEWAY_ACCOUNT_ID --cloudflare-ai-gateway-gateway-id $CF_AI_GATEWAY_GATEWAY_ID"
+    elif [ -n "$ANTHROPIC_API_KEY" ]; then
+        AUTH_ARGS="--auth-choice apiKey"
+    elif [ -n "$OPENAI_API_KEY" ]; then
+        AUTH_ARGS="--auth-choice openai-api-key"
+    fi
+
+    openclaw onboard --non-interactive --accept-risk \
+        --mode local \
+        $AUTH_ARGS \
+        --gateway-port 18789 \
+        --gateway-bind lan \
+        --skip-channels \
+        --skip-skills \
+        --skip-health
+
+    echo "Onboard completed"
 else
     echo "Using existing config"
 fi

@@ -2,23 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { buildEnvVars } from './env';
 import { createMockEnv } from '../test-utils';
 
-const baseOpenClawEnv = {
-  HOME: '/home/openclaw',
-  OPENCLAW_STATE_DIR: '/home/openclaw/.openclaw',
-  OPENCLAW_CONFIG_PATH: '/home/openclaw/.openclaw/openclaw.json',
-  OPENCLAW_AGENT_DIR: '/home/openclaw/.openclaw/agents/main/agent',
-  PI_CODING_AGENT_DIR: '/home/openclaw/.openclaw/agents/main/agent',
-  OPENCLAW_GATEWAY_STARTUP_TRACE: '1',
-  OPENCLAW_ALLOW_MULTI_GATEWAY: '1',
-  OPENCLAW_DISABLE_BONJOUR: '1',
-  OPENCLAW_SKIP_STARTUP_MODEL_PREWARM: '1',
-  OPENCLAW_SKIP_BROWSER_CONTROL_SERVER: '1',
-  OPENCLAW_SKIP_ACPX_RUNTIME_PROBE: '1',
-  NODE_OPTIONS: '--max-old-space-size=512',
-};
+const baseOpenClawEnv = {};
 
 describe('buildEnvVars', () => {
-  it('always pins OpenClaw to the canonical persisted home config paths', () => {
+  it('does not pass custom OpenClaw runtime env by default', () => {
     const env = createMockEnv();
     const result = buildEnvVars(env);
     expect(result).toEqual(baseOpenClawEnv);
