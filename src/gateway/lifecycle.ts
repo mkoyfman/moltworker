@@ -56,6 +56,7 @@ export interface EnsureGatewayLifecycleOptions {
 
 const GATEWAY_READY_LOG_RE = /(?:^|\n).*\[gateway\]\s+ready\b/;
 const GATEWAY_LISTENING_LOG = '[gateway] listening on ws://';
+let gatewayStartInFlight: Promise<Process | null> | null = null;
 
 function getProcessAgeMs(process: {
   id: string;
@@ -166,6 +167,25 @@ function runningResult(
   };
 }
 
+function startGatewayOnce(
+  sandbox: Sandbox,
+  env: OpenClawEnv,
+  options: {
+    waitForReady: boolean;
+    onContainerReplaced: () => Promise<void>;
+  },
+): Promise<Process | null> {
+  if (gatewayStartInFlight) {
+    console.log('[gateway/lifecycle] Gateway start already in flight; waiting for it');
+    return gatewayStartInFlight;
+  }
+
+  gatewayStartInFlight = ensureGateway(sandbox, env, options).finally(() => {
+    gatewayStartInFlight = null;
+  });
+  return gatewayStartInFlight;
+}
+
 async function restoreGatewayStateIfNeeded(
   sandbox: Sandbox,
   bucket: R2Bucket,
@@ -259,7 +279,7 @@ export async function ensureGatewayLifecycle(
   }
 
   try {
-    const ensured = await ensureGateway(sandbox, env, {
+    const ensured = await startGatewayOnce(sandbox, env, {
       waitForReady,
       onContainerReplaced: () => signalRestoreNeeded(env.BACKUP_BUCKET),
     });
@@ -338,7 +358,7 @@ export async function ensureGatewayLifecycle(
         restartRestoreError,
       );
     }
-    const restarted = await ensureGateway(sandbox, env, {
+    const restarted = await startGatewayOnce(sandbox, env, {
       waitForReady: false,
       onContainerReplaced: () => signalRestoreNeeded(env.BACKUP_BUCKET),
     });

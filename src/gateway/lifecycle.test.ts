@@ -50,6 +50,14 @@ function createLifecycleProcess(overrides: Partial<Process> = {}): Process {
   } as Process;
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 describe('ensureGatewayLifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -159,6 +167,30 @@ describe('ensureGatewayLifecycle', () => {
       }),
     });
     expect(mockEnsureGateway).not.toHaveBeenCalled();
+  });
+
+  it('shares one gateway start across concurrent lifecycle calls', async () => {
+    const started = createLifecycleProcess({ id: 'proc_started' });
+    const { sandbox } = createMockSandbox();
+    const env = createMockEnv();
+    const start = createDeferred<Process>();
+
+    mockFindExistingGatewayProcess.mockResolvedValue(null);
+    mockEnsureGateway.mockReturnValue(start.promise);
+
+    const first = ensureGatewayLifecycle(sandbox, env);
+    const second = ensureGatewayLifecycle(sandbox, env);
+
+    await Promise.resolve();
+    start.resolve(started);
+
+    const results = await Promise.all([first, second]);
+
+    expect(mockEnsureGateway).toHaveBeenCalledTimes(1);
+    expect(results).toEqual([
+      expect.objectContaining({ ok: true, status: 'running', processId: started.id }),
+      expect.objectContaining({ ok: true, status: 'running', processId: started.id }),
+    ]);
   });
 
   it('restores the latest backup before starting a new gateway', async () => {
