@@ -54,8 +54,8 @@ export interface EnsureGatewayLifecycleOptions {
   restartStuckAfterMs?: number;
 }
 
-const GATEWAY_READY_LOG_RE =
-  /(?:^|\n).*\[gateway\]\s+(?:ready\b|listening on ws:\/\/(?:0\.0\.0\.0|127\.0\.0\.1|localhost):\d+\b)/;
+const GATEWAY_READY_LOG_RE = /(?:^|\n).*\[gateway\]\s+ready\b/;
+const GATEWAY_LISTENING_LOG = '[gateway] listening on ws://';
 
 function getProcessAgeMs(process: {
   id: string;
@@ -119,10 +119,9 @@ export async function getGatewayProcessDiagnostics(
 
 function diagnosticsIndicateGatewayReady(diagnostics?: GatewayDiagnostics): boolean {
   if (!diagnostics) return false;
+  const logs = `${diagnostics.stdout}\n${diagnostics.stderr}`;
 
-  return (
-    GATEWAY_READY_LOG_RE.test(diagnostics.stdout) || GATEWAY_READY_LOG_RE.test(diagnostics.stderr)
-  );
+  return GATEWAY_READY_LOG_RE.test(logs) || logs.includes(GATEWAY_LISTENING_LOG);
 }
 
 async function isGatewayReady(
@@ -301,6 +300,10 @@ export async function ensureGatewayLifecycle(
     diagnostics.processStatus !== 'running' &&
     diagnostics.processStatus !== 'starting'
   ) {
+    if (diagnosticsIndicateGatewayReady(diagnostics)) {
+      return runningResult(process, diagnostics, restoreError, restoreStatus);
+    }
+
     return {
       ok: false,
       status: 'start_failed',
