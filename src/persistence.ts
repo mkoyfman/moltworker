@@ -2,7 +2,9 @@ import type { Sandbox } from '@cloudflare/sandbox';
 
 const BACKUP_DIR = '/home/openclaw';
 const HANDLE_KEY = 'backup-handle.json';
-const RESTORE_MARKER_PATH = `${BACKUP_DIR}/.moltworker-restore.json`;
+// This is local control-plane state, not user data. Keep it outside BACKUP_DIR
+// so snapshot mount/restore semantics cannot hide or roll it back.
+const RESTORE_MARKER_PATH = '/tmp/moltworker-restore.json';
 const BACKUP_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 const RESTORE_NEEDED_KEY = 'restore-needed';
@@ -165,11 +167,7 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
   const t0 = Date.now();
   try {
     await sandbox.restoreBackup(handle);
-    try {
-      await writeLocalRestoreMarker(sandbox, handle);
-    } catch (markerErr) {
-      console.warn('[persistence] Could not write local restore marker:', markerErr);
-    }
+    await writeLocalRestoreMarker(sandbox, handle);
     // Clear the restore signal and set the per-isolate flag
     await bucket.delete(RESTORE_NEEDED_KEY);
     restored = true;
