@@ -7,7 +7,7 @@ import startOpenClawScript from '../../start-openclaw.sh?raw';
 const EXPECTED_MODEL_REF = 'cf-ai-gw-workers-ai/@cf/moonshotai/kimi-k2.6';
 const EXPECTED_PROVIDER_ID = 'cf-ai-gw-workers-ai';
 const EXPECTED_MODEL_PATCH_VERSION = 9;
-const EXPECTED_OPENCLAW_RUNTIME_VERSION = '2026.3.23-2';
+const EXPECTED_OPENCLAW_RUNTIME_VERSION = '2026.6.1';
 const CURRENT_START_SCRIPT_PATH = '/tmp/moltworker-start-openclaw-current.sh';
 
 export interface EnsureGatewayOptions {
@@ -81,9 +81,8 @@ export async function isGatewayPortOpen(sandbox: Sandbox): Promise<boolean> {
 
 /**
  * Check the installed OpenClaw version in the sandbox. This intentionally
- * requires the official Cloudflare moltworker runtime version instead of
- * accepting newer builds; OpenClaw 2026.5.x currently gets SIGKILLed during
- * gateway startup inside the Cloudflare sandbox before the port is ready.
+ * requires the image-pinned OpenClaw runtime version so a Worker deploy can
+ * force-replace containers that are still running an older image.
  */
 export async function isOpenClawRuntimeVersionCurrent(sandbox: Sandbox): Promise<boolean> {
   const result = await sandbox.exec('openclaw --version');

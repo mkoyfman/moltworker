@@ -21,11 +21,10 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && npm --version
 
 # Install OpenClaw
-# Track the version used by the official Cloudflare moltworker image. Newer
-# OpenClaw 2026.5.x builds are currently killed during gateway startup inside
-# the Cloudflare sandbox before the HTTP port is ready.
-ARG OPENCLAW_VERSION=2026.3.23-2
-ARG OPENCLAW_CACHE_BUST=2026-05-30-openclaw-2026.3.23-2-official-runtime
+# Pin the current published OpenClaw version so deploys are reproducible and
+# the Worker can force-replace containers running an older runtime.
+ARG OPENCLAW_VERSION=2026.6.1
+ARG OPENCLAW_CACHE_BUST=2026-06-04-openclaw-2026.6.1
 RUN echo "Installing OpenClaw ${OPENCLAW_VERSION} (${OPENCLAW_CACHE_BUST})" \
     && npm install -g openclaw@${OPENCLAW_VERSION} \
     && openclaw --version
