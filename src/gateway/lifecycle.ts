@@ -204,7 +204,23 @@ async function restoreGatewayStateIfNeeded(
     if (process) await killGateway(sandbox);
     try {
       await restoreIfNeeded(sandbox, bucket);
-      return { process: null, restoreError: null, restoreStatus, failed: false };
+      const postRestoreStatus = await getRestoreStatus(sandbox, bucket);
+      if (postRestoreStatus.hasBackup && !postRestoreStatus.restored) {
+        const restoreError = `Latest backup ${postRestoreStatus.backupId} was not marked restored after restore attempt`;
+        console.error('[gateway/lifecycle] Restore verification failed:', restoreError);
+        return {
+          process: null,
+          restoreError,
+          restoreStatus: postRestoreStatus,
+          failed: true,
+        };
+      }
+      return {
+        process: null,
+        restoreError: null,
+        restoreStatus: postRestoreStatus,
+        failed: false,
+      };
     } catch (err) {
       const restoreError = err instanceof Error ? err.message : String(err);
       console.error('[gateway/lifecycle] Restore failed:', restoreError);
@@ -215,10 +231,22 @@ async function restoreGatewayStateIfNeeded(
   if (!process) {
     try {
       await restoreIfNeeded(sandbox, bucket);
+      const postRestoreStatus = await getRestoreStatus(sandbox, bucket);
+      if (postRestoreStatus.hasBackup && !postRestoreStatus.restored) {
+        const restoreError = `Latest backup ${postRestoreStatus.backupId} was not marked restored after restore attempt`;
+        console.error('[gateway/lifecycle] Restore verification failed:', restoreError);
+        return {
+          process,
+          restoreError,
+          restoreStatus: postRestoreStatus,
+          failed: true,
+        };
+      }
+      return { process, restoreError: null, restoreStatus: postRestoreStatus, failed: false };
     } catch (err) {
       const restoreError = err instanceof Error ? err.message : String(err);
       console.error('[gateway/lifecycle] Restore before gateway start failed:', restoreError);
-      return { process, restoreError, restoreStatus, failed: false };
+      return { process, restoreError, restoreStatus, failed: true };
     }
   }
 

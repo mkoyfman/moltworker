@@ -203,9 +203,16 @@ describe('ensureGatewayLifecycle', () => {
       restored: false,
       localBackupId: null,
     };
+    const postRestoreStatus = {
+      ...restoreStatus,
+      restored: true,
+      localBackupId: 'backup-1',
+    };
 
     mockFindExistingGatewayProcess.mockResolvedValue(null);
-    mockGetRestoreStatus.mockResolvedValue(restoreStatus);
+    mockGetRestoreStatus
+      .mockResolvedValueOnce(restoreStatus)
+      .mockResolvedValueOnce(postRestoreStatus);
     mockEnsureGateway.mockResolvedValue(started);
 
     const result = await ensureGatewayLifecycle(sandbox, env, {
@@ -223,7 +230,7 @@ describe('ensureGatewayLifecycle', () => {
       ok: true,
       status: 'running',
       processId: started.id,
-      restoreStatus,
+      restoreStatus: postRestoreStatus,
     });
   });
 
@@ -234,11 +241,16 @@ describe('ensureGatewayLifecycle', () => {
     const env = createMockEnv();
 
     mockFindExistingGatewayProcess.mockResolvedValueOnce(existing);
-    mockGetRestoreStatus.mockResolvedValue({
+    const restoreStatus = {
       hasBackup: true,
       backupId: 'backup-1',
       restored: false,
       localBackupId: null,
+    };
+    mockGetRestoreStatus.mockResolvedValueOnce(restoreStatus).mockResolvedValueOnce({
+      ...restoreStatus,
+      restored: true,
+      localBackupId: 'backup-1',
     });
     mockEnsureGateway.mockResolvedValue(started);
 
@@ -246,6 +258,31 @@ describe('ensureGatewayLifecycle', () => {
 
     expect(mockKillGateway).toHaveBeenCalledWith(sandbox);
     expect(mockRestoreIfNeeded).toHaveBeenCalledWith(sandbox, env.BACKUP_BUCKET);
+  });
+
+  it('does not start a new gateway when restore verification still reports unrestored backup', async () => {
+    const { sandbox } = createMockSandbox();
+    const env = createMockEnv();
+    const restoreStatus = {
+      hasBackup: true,
+      backupId: 'backup-1',
+      restored: false,
+      localBackupId: null,
+    };
+
+    mockFindExistingGatewayProcess.mockResolvedValue(null);
+    mockGetRestoreStatus.mockResolvedValue(restoreStatus);
+
+    const result = await ensureGatewayLifecycle(sandbox, env);
+
+    expect(mockRestoreIfNeeded).toHaveBeenCalledWith(sandbox, env.BACKUP_BUCKET);
+    expect(mockEnsureGateway).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'restore_failed',
+      restoreError: 'Latest backup backup-1 was not marked restored after restore attempt',
+      restoreStatus,
+    });
   });
 
   it('does not start the gateway when startIfNeeded is false', async () => {
