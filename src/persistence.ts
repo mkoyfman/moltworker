@@ -75,28 +75,37 @@ function isExpiredOrMissingBackupError(error: unknown): boolean {
 }
 
 async function readLocalRestoreMarker(sandbox: Sandbox): Promise<{ backupId?: string } | null> {
+  const result = await sandbox.exec(`test -f ${RESTORE_MARKER_PATH} && cat ${RESTORE_MARKER_PATH}`);
+  if (!result.success) {
+    return null;
+  }
+
+  const raw = result.stdout?.trim();
+  if (!raw) return null;
+
   try {
-    const result = await sandbox.exec(`cat ${RESTORE_MARKER_PATH} 2>/dev/null || true`);
-    const raw = result.stdout?.trim();
-    if (!raw) return null;
     return JSON.parse(raw);
-  } catch {
+  } catch (err) {
+    console.warn('[persistence] Could not parse local restore marker:', err, raw);
     return null;
   }
 }
 
 async function writeLocalRestoreMarker(sandbox: Sandbox, handle: BackupHandle): Promise<void> {
-  const script = `
-const fs = require('fs');
-const path = require('path');
-const markerPath = ${JSON.stringify(RESTORE_MARKER_PATH)};
-fs.mkdirSync(path.dirname(markerPath), { recursive: true });
-fs.writeFileSync(markerPath, JSON.stringify({
-  backupId: ${JSON.stringify(handle.id)},
-  restoredAt: new Date().toISOString()
-}, null, 2) + '\\n');
-`;
-  await sandbox.exec(`node -e ${JSON.stringify(script)}`);
+  const marker = `${JSON.stringify(
+    {
+      backupId: handle.id,
+      restoredAt: new Date().toISOString(),
+    },
+    null,
+    2,
+  )}\n`;
+  const result = await sandbox.writeFile(RESTORE_MARKER_PATH, marker);
+  if (!result.success) {
+    throw new Error(
+      `Failed to write restore marker ${RESTORE_MARKER_PATH} (exitCode=${result.exitCode ?? 'unknown'})`,
+    );
+  }
 }
 
 export async function getRestoreStatus(sandbox: Sandbox, bucket: R2Bucket): Promise<RestoreStatus> {
@@ -166,7 +175,11 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
   console.log(`[persistence] Restoring backup ${handle.id}...`);
   const t0 = Date.now();
   try {
-    await sandbox.restoreBackup(handle);
+    const restoreResult = await sandbox.restoreBackup(handle);
+    if (!restoreResult.success) {
+      throw new Error(`restoreBackup returned success=false for backup ${handle.id}`);
+    }
+    console.log(`[persistence] Restore mounted ${restoreResult.id} at ${restoreResult.dir}`);
     await writeLocalRestoreMarker(sandbox, handle);
     // Clear the restore signal and set the per-isolate flag
     await bucket.delete(RESTORE_NEEDED_KEY);
